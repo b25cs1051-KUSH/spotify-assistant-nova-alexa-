@@ -19,7 +19,7 @@ graph TD
     B -->|Check OS Process List| C{Is Spotify Active?}
     C -->|Yes| D[WinRT Radio Manager]
     D -->|Toggles Laptop Bluetooth ON| E[WinRT Bluetooth Connector]
-    E -->|Triggers connection to "your bluetooth speaker"| F[Spawn Console]
+    E -->|Triggers connection to 'your bluetooth speaker'| F[Spawn Console]
     F -->|Opens log terminal running main.py| G[main.py Voice Assistant]
     G -->|Continuous Microphone Polling| H[Google Speech Recognition]
     H -->|en-IN Accent Matching| I[Command Parser]
