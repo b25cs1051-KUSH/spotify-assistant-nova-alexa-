@@ -1,0 +1,24 @@
+{
+  "short_name": "Alexa/Nova",
+  "name": "Alexa/Nova Spotify Voice Assistant",
+  "description": "Hands-free voice assistant for Spotify Connect featuring en-IN accent matching and automatic wake lock.",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "index.html",
+  "background_color": "#121212",
+  "theme_color": "#1ED760",
+  "display": "standalone",
+  "orientation": "portrait"
+}

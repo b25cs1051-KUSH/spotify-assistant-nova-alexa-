@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Alexa/Nova: Spotify Assistant</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1ED760">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    
+    <!-- Premium Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="glass-bg-blur"></div>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="brand">
+                <span class="logo-dot"></span>
+                <h1>ALEXA / NOVA</h1>
+            </div>
+            <p class="subtitle">Mobile Spotify Controller</p>
+        </header>
+
+        <!-- Auth Section -->
+        <section id="auth-section" class="card fade-in">
+            <div class="auth-logged-out">
+                <div class="spotify-logo-icon"></div>
+                <h2>Connect Your Account</h2>
+                <p>Log in with Spotify Premium to authorize hands-free playback control.</p>
+                <button id="login-btn" class="btn btn-primary ripple">
+                    Connect Spotify
+                </button>
+            </div>
+            
+            <div class="auth-logged-in hidden">
+                <div class="profile-card">
+                    <img id="user-avatar" src="https://img.icons8.com/color/96/user.png" alt="Avatar" class="avatar">
+                    <div class="profile-info">
+                        <h3 id="user-name">Spotify User</h3>
+                        <span class="badge premium-badge">Premium</span>
+                    </div>
+                </div>
+                <button id="logout-btn" class="btn btn-secondary btn-sm">Disconnect</button>
+            </div>
+        </section>
+
+        <!-- Device & Wake Lock Status -->
+        <section id="status-section" class="card status-grid fade-in">
+            <div class="status-item">
+                <span class="status-label">Device Connected</span>
+                <span id="active-device-name" class="status-value warning-text">No active device</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Screen Wake Lock</span>
+                <span id="wake-lock-status" class="status-value warning-text">Disabled</span>
+            </div>
+        </section>
+
+        <!-- Voice Visualization Core -->
+        <section id="assistant-section" class="card assistant-card fade-in">
+            <div class="voice-ring-container">
+                <div id="glow-ring-1" class="glow-ring"></div>
+                <div id="glow-ring-2" class="glow-ring"></div>
+                <button id="mic-trigger-btn" class="mic-btn ripple">
+                    <svg viewBox="0 0 24 24" class="mic-icon">
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="assistant-feedback">
+                <h2 id="assistant-prompt">Wake Word Off</h2>
+                <p id="transcript-display" class="transcript-placeholder">Tap to start voice recognition loop...</p>
+            </div>
+        </section>
+
+        <!-- Quick Manual Playback Bar -->
+        <section id="controls-section" class="card playback-controls fade-in">
+            <button id="prev-btn" class="btn-control ripple" aria-label="Previous">
+                <svg viewBox="0 0 24 24" class="control-icon"><path d="M6 6h2v12H6zm3.5 6L18 18V6z"/></svg>
+            </button>
+            <button id="play-btn" class="btn-control play-btn ripple" aria-label="Play/Pause">
+                <svg id="play-icon" viewBox="0 0 24 24" class="control-icon"><path d="M8 5v14l11-7z"/></svg>
+                <svg id="pause-icon" viewBox="0 0 24 24" class="control-icon hidden"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button id="next-btn" class="btn-control ripple" aria-label="Next">
+                <svg viewBox="0 0 24 24" class="control-icon"><path d="M6 18l8.5-6L6 6zm9-12v12h2V6z"/></svg>
+            </button>
+        </section>
+    </div>
+
+    <!-- Core App JS -->
+    <script src="app.js"></script>
+    <script>
+        // Register Service Worker for PWA installation and offline capabilities
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('[Service Worker] Registered successfully:', reg.scope))
+                    .catch(err => console.error('[Service Worker] Registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
