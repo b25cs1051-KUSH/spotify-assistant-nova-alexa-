@@ -211,7 +211,10 @@ function logout() {
 
 async function fetchFromSpotify(endpoint, method = "GET", body = null) {
     const token = await getValidToken();
-    if (!token) return null;
+    if (!token) {
+        showDebugError("Token Error: Please disconnect and log in again.");
+        return null;
+    }
 
     const options = {
         method: method,
@@ -229,14 +232,43 @@ async function fetchFromSpotify(endpoint, method = "GET", body = null) {
         const response = await fetch(`https://api.spotify.com${endpoint}`, options);
         if (response.status === 204) return true;
         if (response.status === 403) {
-            console.warn("[Spotify API] 403 Restriction violated. Handled cleanly.");
+            console.warn("[Spotify API] 403 Restriction violated.");
+            showDebugError("Spotify Error 403: Restriction Violated (Is Spotify Premium active?)");
             return false;
         }
-        return await response.json();
+        if (response.status === 404) {
+            showDebugError("Spotify Error 404: No active device found. Play a song in the Spotify app first!");
+            return false;
+        }
+        if (response.status === 401) {
+            showDebugError("Spotify Error 401: Session expired. Please logout and log back in.");
+            return false;
+        }
+        
+        // Handle endpoints that don't return JSON but aren't 204
+        if (response.status >= 200 && response.status < 300) {
+            const textContent = await response.text();
+            try {
+                return textContent ? JSON.parse(textContent) : true;
+            } catch (e) {
+                return true;
+            }
+        }
+        
+        const data = await response.json();
+        if (data && data.error) {
+            showDebugError(`Spotify Error: ${data.error.message}`);
+        }
+        return data;
     } catch (err) {
         console.error(`[Spotify API Error] ${endpoint}:`, err);
+        showDebugError(`Network Error: ${err.message}`);
         return null;
     }
+}
+
+function showDebugError(msg) {
+    transcriptDisplay.innerHTML = `<span style="color: var(--accent-red); font-weight: 600;">${msg}</span>`;
 }
 
 async function loadUserProfile() {
@@ -350,6 +382,9 @@ function initializeSpeechEngine() {
         const text = event.results[lastResultIndex][0].transcript.trim();
         const textLower = text.toLowerCase();
         console.log(`[Heard]: "${text}" (Wake active: ${isWakeWordActive})`);
+        
+        // Visual feedback: show what the phone heard on screen
+        transcriptDisplay.textContent = `Heard: "${text}"`;
 
         // Case A: Wake word is already active, this is the command
         if (isWakeWordActive) {
