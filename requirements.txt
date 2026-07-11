@@ -8,3 +8,4 @@ setuptools>=70.0.0
 # Note: PyAudio is required by SpeechRecognition for microphone access.
 # If installation fails on Windows, try running: pip install pyaudio
 PyAudio==0.2.14
+vosk==0.3.45

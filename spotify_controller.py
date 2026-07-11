@@ -50,6 +50,22 @@ class SpotifyControllerInterface:
         """Plays a random song from liked songs cache and rotates the queue around it."""
         raise NotImplementedError
 
+    def play_local(self) -> bool:
+        """Simulates native keyboard Media Play/Pause to resume playback instantly."""
+        raise NotImplementedError
+
+    def pause_local(self) -> bool:
+        """Simulates native keyboard Media Stop to pause playback instantly."""
+        raise NotImplementedError
+
+    def next_local(self) -> bool:
+        """Simulates native keyboard Media Next to skip tracks instantly."""
+        raise NotImplementedError
+
+    def previous_local(self) -> bool:
+        """Simulates native keyboard Media Previous to go back instantly."""
+        raise NotImplementedError
+
 
 import re
 
@@ -173,40 +189,36 @@ class RealSpotifyController(SpotifyControllerInterface):
             return False
 
     def play(self, query: Optional[str] = None, search_type: str = "track") -> bool:
-        if not self.ensure_active_device():
-            return False
-        try:
+        def _execute_play():
             if not query:
                 try:
                     self.sp.start_playback()
                     print("[Real Spotify] Playback resumed.")
                 except SpotifyException as e:
-                    # Ignore 'Restriction violated' if playback is already active
                     if e.http_status == 403 and "Restriction violated" in str(e):
                         print("[Real Spotify] Playback is already active.")
                     else:
                         raise e
                 return True
 
-            # If search_type is 'track', check our Liked Songs cache using fuzzy matching first
+            try:
+                self.sp.shuffle(state=False)
+            except Exception:
+                pass
+
             if search_type == "track" and self.liked_track_names:
                 import difflib
                 q_lower = query.strip().lower()
                 track_part = q_lower
-                # Extract track name if connector was spoken (e.g. "Starboy by The Weeknd" -> "Starboy")
                 for connector in [" by ", " of "]:
                     if connector in q_lower:
                         track_part = q_lower.split(connector, 1)[0].strip()
                         break
                 
-                # Look for a close match in cached liked songs (threshold 80% similarity)
                 matches = difflib.get_close_matches(track_part, self.liked_track_names, n=1, cutoff=0.8)
                 if matches:
                     matched_name = matches[0]
                     matched_index = self.liked_track_names.index(matched_name)
-                    
-                    # Rotate the URIs list so the matched song is first, followed by the rest of your liked songs.
-                    # Spotify limits the 'uris' list to a maximum of 100 tracks in start_playback().
                     ordered_uris = self.liked_track_uris[matched_index:] + self.liked_track_uris[:matched_index]
                     sliced_uris = ordered_uris[:100]
                     
@@ -231,7 +243,6 @@ class RealSpotifyController(SpotifyControllerInterface):
             if search_type == "track":
                 artist_name = item.get("artists", [{}])[0].get("name", "Unknown Artist")
                 print(f"[Real Spotify] Playing Track: '{item_name}' by {artist_name}")
-                # Use local Liked Songs cache to populate Autoplay / "Up Next" queue
                 autoplay_uris = []
                 if self.liked_track_uris:
                     import random
@@ -242,51 +253,74 @@ class RealSpotifyController(SpotifyControllerInterface):
                 print(f"[Real Spotify] Playing {search_type.capitalize()}: '{item_name}'")
                 self.sp.start_playback(context_uri=item_uri)
             return True
+
+        try:
+            return _execute_play()
         except SpotifyException as e:
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute_play()
+                    except Exception as retry_err:
+                        print(f"[Real Spotify] Retry play failed: {retry_err}")
             print(f"[Real Spotify] Playback error: {e}")
             return False
 
     def pause(self) -> bool:
-        if not self.ensure_active_device():
-            return False
-        try:
+        def _execute():
             self.sp.pause_playback()
             print("[Real Spotify] Playback paused.")
             return True
+        try:
+            return _execute()
         except SpotifyException as e:
-            # Silence the error if the player is already paused (Restriction Violated)
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute()
+                    except Exception:
+                        pass
             if e.http_status == 403 and "Restriction violated" in str(e):
                 print("[Real Spotify] Playback is already paused.")
-                return True
+                return False
             print(f"[Real Spotify] Error pausing: {e}")
             return False
 
     def next(self) -> bool:
-        if not self.ensure_active_device():
-            return False
-        try:
-            # Resume playback first if paused, to ensure Spotify Connect is in active state before skipping
-            self.play()
-            time.sleep(0.5)
+        def _execute():
             self.sp.next_track()
             print("[Real Spotify] Skipped to next track.")
             return True
+        try:
+            return _execute()
         except SpotifyException as e:
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute()
+                    except Exception:
+                        pass
             print(f"[Real Spotify] Error skipping: {e}")
             return False
 
     def previous(self) -> bool:
-        if not self.ensure_active_device():
-            return False
-        try:
-            # Resume playback first if paused, to ensure Spotify Connect is in active state before going back
-            self.play()
-            time.sleep(0.5)
+        def _execute():
             self.sp.previous_track()
             print("[Real Spotify] Returned to previous track.")
             return True
+        try:
+            return _execute()
         except SpotifyException as e:
-            # Catch 'Restriction violated' when there is no previous track in the active context/history
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute()
+                    except Exception:
+                        pass
             if e.http_status == 403 and "Restriction violated" in str(e):
                 print("[Real Spotify] Cannot go back: No previous track in this context.")
                 return True
@@ -294,14 +328,21 @@ class RealSpotifyController(SpotifyControllerInterface):
             return False
 
     def set_volume(self, volume_percent: int) -> bool:
-        if not self.ensure_active_device():
-            return False
         level = max(0, min(100, volume_percent))
-        try:
+        def _execute():
             self.sp.volume(volume_percent=level)
             print(f"[Real Spotify] Volume set to {level}%.")
             return True
+        try:
+            return _execute()
         except SpotifyException as e:
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute()
+                    except Exception:
+                        pass
             print(f"[Real Spotify] Error setting volume: {e}")
             return False
 
@@ -329,20 +370,25 @@ class RealSpotifyController(SpotifyControllerInterface):
             return False
 
     def set_shuffle(self, state: bool) -> bool:
-        if not self.ensure_active_device():
-            return False
-        try:
+        def _execute():
             self.sp.shuffle(state=state)
             state_str = "ON" if state else "OFF"
             print(f"[Real Spotify] Shuffle set to {state_str}.")
             return True
+        try:
+            return _execute()
         except SpotifyException as e:
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute()
+                    except Exception:
+                        pass
             print(f"[Real Spotify] Error toggling shuffle: {e}")
             return False
 
     def play_random_liked(self) -> bool:
-        if not self.ensure_active_device():
-            return False
         if not self.liked_track_uris:
             print("[Real Spotify] Liked songs cache is empty. Attempting to refresh...")
             self._cache_liked_songs()
@@ -351,24 +397,83 @@ class RealSpotifyController(SpotifyControllerInterface):
                 return False
         
         import random
-        # Select a random track
         rand_idx = random.randint(0, len(self.liked_track_uris) - 1)
         rand_uri = self.liked_track_uris[rand_idx]
         rand_name = self.liked_track_names[rand_idx]
-        
-        # Rotate the queue around this random song
         sliced_uris = [
             rand_uri,
             *self.liked_track_uris[rand_idx + 1:],
             *self.liked_track_uris[:rand_idx]
         ][:100]
-        
-        print(f"[Real Spotify] Playing Random Liked Track: '{rand_name}' (rotating queue around it).")
-        try:
+
+        def _execute():
+            try:
+                self.sp.shuffle(state=False)
+            except Exception:
+                pass
             self.sp.start_playback(uris=sliced_uris)
+            print(f"[Real Spotify] Playing Random Liked Track: '{rand_name}' (rotating queue around it).")
             return True
+
+        try:
+            return _execute()
         except SpotifyException as e:
+            if e.http_status == 404:
+                print("[Real Spotify] No active device. Attempting to activate...")
+                if self.ensure_active_device():
+                    try:
+                        return _execute()
+                    except Exception:
+                        pass
             print(f"[Real Spotify] Error playing random liked track: {e}")
+            return False
+
+    def play_local(self) -> bool:
+        import ctypes
+        VK_MEDIA_PLAY_PAUSE = 0xB3
+        try:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 2, 0)
+            print("[Local OS] Resuming playback via media keys shortcut (0ms delay).")
+            return True
+        except Exception as e:
+            print(f"[Local OS] Failed to send play shortcut: {e}")
+            return False
+
+    def pause_local(self) -> bool:
+        import ctypes
+        VK_MEDIA_STOP = 0xB2
+        try:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_STOP, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_STOP, 0, 2, 0)
+            print("[Local OS] Pausing playback via media stop shortcut (0ms delay).")
+            return True
+        except Exception as e:
+            print(f"[Local OS] Failed to send pause shortcut: {e}")
+            return False
+
+    def next_local(self) -> bool:
+        import ctypes
+        VK_MEDIA_NEXT = 0xB0
+        try:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_NEXT, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_NEXT, 0, 2, 0)
+            print("[Local OS] Skipping to next track via media shortcut (0ms delay).")
+            return True
+        except Exception as e:
+            print(f"[Local OS] Failed to send next shortcut: {e}")
+            return False
+
+    def previous_local(self) -> bool:
+        import ctypes
+        VK_MEDIA_PREV = 0xB1
+        try:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PREV, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PREV, 0, 2, 0)
+            print("[Local OS] Returning to previous track via media shortcut (0ms delay).")
+            return True
+        except Exception as e:
+            print(f"[Local OS] Failed to send previous shortcut: {e}")
             return False
 
 
@@ -462,8 +567,27 @@ class MockSpotifyController(SpotifyControllerInterface):
     def play_random_liked(self) -> bool:
         self._current_track = "Random Liked Song"
         self._current_artist = "Random Artist"
-        self._is_playing = True
         print(f"[Mock Spotify] Playing Random Liked Track: '{self._current_track}' by {self._current_artist}.")
+        return True
+
+    def play_local(self) -> bool:
+        self._is_playing = True
+        print("[Mock Spotify] Play/Pause simulated locally.")
+        return True
+
+    def pause_local(self) -> bool:
+        self._is_playing = False
+        print("[Mock Spotify] Pause simulated locally.")
+        return True
+
+    def next_local(self) -> bool:
+        self._current_track = "Next Mock Song"
+        print("[Mock Spotify] Next track simulated locally.")
+        return True
+
+    def previous_local(self) -> bool:
+        self._current_track = "Prev Mock Song"
+        print("[Mock Spotify] Prev track simulated locally.")
         return True
 
 
