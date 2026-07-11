@@ -257,11 +257,11 @@ class RealSpotifyController(SpotifyControllerInterface):
         if not self.ensure_active_device():
             return False
         try:
+            # Resume playback first if paused, to ensure Spotify Connect is in active state before skipping
+            self.play()
+            time.sleep(0.5)
             self.sp.next_track()
             print("[Real Spotify] Skipped to next track.")
-            # Sleep briefly to allow Spotify Connect to register the skip event asynchronously
-            time.sleep(0.6)
-            self.play()
             return True
         except SpotifyException as e:
             print(f"[Real Spotify] Error skipping: {e}")
@@ -271,18 +271,16 @@ class RealSpotifyController(SpotifyControllerInterface):
         if not self.ensure_active_device():
             return False
         try:
+            # Resume playback first if paused, to ensure Spotify Connect is in active state before going back
+            self.play()
+            time.sleep(0.5)
             self.sp.previous_track()
             print("[Real Spotify] Returned to previous track.")
-            # Sleep briefly to allow Spotify Connect to register the skip event asynchronously
-            time.sleep(0.6)
-            self.play()
             return True
         except SpotifyException as e:
             # Catch 'Restriction violated' when there is no previous track in the active context/history
             if e.http_status == 403 and "Restriction violated" in str(e):
                 print("[Real Spotify] Cannot go back: No previous track in this context.")
-                # Resume playing the current track so the user is not left in silence
-                self.play()
                 return True
             print(f"[Real Spotify] Error going back: {e}")
             return False
