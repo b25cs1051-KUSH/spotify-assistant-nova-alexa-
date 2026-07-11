@@ -64,6 +64,22 @@ def parse_and_execute(command_text: str, controller: SpotifyControllerInterface)
         controller.pause()
         return True
 
+    # 5b. Shuffle Toggling (e.g. "shuffle on", "shuffle off", "enable shuffle")
+    if "shuffle" in words:
+        if "on" in words or "enable" in words or "activate" in words:
+            controller.set_shuffle(True)
+            return True
+        elif "off" in words or "disable" in words or "deactivate" in words:
+            controller.set_shuffle(False)
+            return True
+
+    # 5c. Play Random Liked Song (e.g. "play random song", "play random liked", "random track")
+    random_keywords = {"random", "arbitrary", "any"}
+    liked_keywords = {"liked", "song", "track", "music", "playlist"}
+    if (words & random_keywords) and (words & liked_keywords):
+        controller.play_random_liked()
+        return True
+
     # 6. Play / Resume (Open search query for any language/song title)
     if "play" in words or "resume" in words or "start" in words:
         # Capture everything spoken after the word 'play', 'resume', or 'start'

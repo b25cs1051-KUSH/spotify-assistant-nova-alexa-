@@ -42,6 +42,14 @@ class SpotifyControllerInterface:
         """Helper to check if music is actively playing."""
         raise NotImplementedError
 
+    def set_shuffle(self, state: bool) -> bool:
+        """Enables or disables playback shuffle."""
+        raise NotImplementedError
+
+    def play_random_liked(self) -> bool:
+        """Plays a random song from liked songs cache and rotates the queue around it."""
+        raise NotImplementedError
+
 
 import re
 
@@ -320,6 +328,49 @@ class RealSpotifyController(SpotifyControllerInterface):
         except Exception:
             return False
 
+    def set_shuffle(self, state: bool) -> bool:
+        if not self.ensure_active_device():
+            return False
+        try:
+            self.sp.shuffle(state=state)
+            state_str = "ON" if state else "OFF"
+            print(f"[Real Spotify] Shuffle set to {state_str}.")
+            return True
+        except SpotifyException as e:
+            print(f"[Real Spotify] Error toggling shuffle: {e}")
+            return False
+
+    def play_random_liked(self) -> bool:
+        if not self.ensure_active_device():
+            return False
+        if not self.liked_track_uris:
+            print("[Real Spotify] Liked songs cache is empty. Attempting to refresh...")
+            self._cache_liked_songs()
+            if not self.liked_track_uris:
+                print("[Real Spotify] No liked songs available.")
+                return False
+        
+        import random
+        # Select a random track
+        rand_idx = random.randint(0, len(self.liked_track_uris) - 1)
+        rand_uri = self.liked_track_uris[rand_idx]
+        rand_name = self.liked_track_names[rand_idx]
+        
+        # Rotate the queue around this random song
+        sliced_uris = [
+            rand_uri,
+            *self.liked_track_uris[rand_idx + 1:],
+            *self.liked_track_uris[:rand_idx]
+        ][:100]
+        
+        print(f"[Real Spotify] Playing Random Liked Track: '{rand_name}' (rotating queue around it).")
+        try:
+            self.sp.start_playback(uris=sliced_uris)
+            return True
+        except SpotifyException as e:
+            print(f"[Real Spotify] Error playing random liked track: {e}")
+            return False
+
 
 class MockSpotifyController(SpotifyControllerInterface):
     """
@@ -402,6 +453,18 @@ class MockSpotifyController(SpotifyControllerInterface):
 
     def is_currently_playing(self) -> bool:
         return self._is_playing
+
+    def set_shuffle(self, state: bool) -> bool:
+        state_str = "ON" if state else "OFF"
+        print(f"[Mock Spotify] Shuffle toggled to {state_str}.")
+        return True
+
+    def play_random_liked(self) -> bool:
+        self._current_track = "Random Liked Song"
+        self._current_artist = "Random Artist"
+        self._is_playing = True
+        print(f"[Mock Spotify] Playing Random Liked Track: '{self._current_track}' by {self._current_artist}.")
+        return True
 
 
 def create_spotify_controller() -> SpotifyControllerInterface:
