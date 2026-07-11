@@ -37,6 +37,8 @@ let wakeLock = null;
 let isListeningLoopActive = false;
 let activePlaybackDevice = null;
 let wasPlayingBeforeDucking = false;
+let isWakeWordActive = false;
+let wakeWordTimeout = null;
 
 // ==========================================
 // 1. OAUTH 2.0 PKCE CRYPTOGRAPHY HELPERS
@@ -346,44 +348,21 @@ function initializeSpeechEngine() {
     recognition.onresult = async (event) => {
         const lastResultIndex = event.results.length - 1;
         const text = event.results[lastResultIndex][0].transcript.trim();
-        console.log(`[Heard]: "${text}"`);
-        
         const textLower = text.toLowerCase();
-        const wakeWords = ["alexa", "nova", "innova", "noa", "alexis", "alexa's"];
-        let matchedWake = null;
+        console.log(`[Heard]: "${text}" (Wake active: ${isWakeWordActive})`);
 
-        for (const w of wakeWords) {
-            if (textLower.includes(w)) {
-                matchedWake = w;
-                break;
-            }
-        }
-
-        if (matchedWake) {
-            // Duck volume/pause active music to clarify mic input
-            await checkActiveDevice();
-            const playerState = await fetchFromSpotify("/v1/me/player");
-            wasPlayingBeforeDucking = playerState && playerState.is_playing;
+        // Case A: Wake word is already active, this is the command
+        if (isWakeWordActive) {
+            clearTimeout(wakeWordTimeout);
+            isWakeWordActive = false;
             
-            if (wasPlayingBeforeDucking) {
-                console.log("[Voice Daemon] Ducking playback...");
-                await fetchFromSpotify("/v1/me/player/pause", "PUT");
-            }
-
-            assistantPrompt.textContent = "Listening to Command...";
-            assistantPrompt.style.color = "var(--neon-green)";
-
-            // Extract the command trailing the wake word
-            const parts = textLower.split(matchedWake);
-            const commandText = parts[parts.length - 1].trim();
+            transcriptDisplay.textContent = `Processing: "${text}"`;
+            await parseAndExecuteVoiceCommand(textLower);
             
-            transcriptDisplay.textContent = `Processing: "${commandText}"`;
-            
-            await parseAndExecuteVoiceCommand(commandText);
-            
-            // Restore playback if was playing and command wasn't pause
-            const isPauseCommand = /pause|stop|boss|freeze/.test(commandText);
-            if (wasPlayingBeforeDucking && !isPauseCommand) {
+            // Restore playback if needed
+            const isPauseCommand = /pause|stop|boss|freeze/.test(textLower);
+            const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(textLower);
+            if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
                 setTimeout(async () => {
                     console.log("[Voice Daemon] Restoring playback...");
                     await fetchFromSpotify("/v1/me/player/play", "PUT");
@@ -395,6 +374,70 @@ function initializeSpeechEngine() {
                 assistantPrompt.textContent = "Listening for Wake Word...";
                 assistantPrompt.style.color = "var(--text-primary)";
             }, 3000);
+            return;
+        }
+
+        // Case B: Listening for wake word trigger
+        const wakeWords = ["alexa", "nova", "innova", "noa", "alexis", "alexa's"];
+        let matchedWake = null;
+
+        for (const w of wakeWords) {
+            if (textLower.includes(w)) {
+                matchedWake = w;
+                break;
+            }
+        }
+
+        if (matchedWake) {
+            console.log(`[Wake Word] Detected: ${matchedWake}`);
+            
+            // Split to check if the user said the command in the same breath (e.g. "Alexa play Despacito")
+            const parts = textLower.split(matchedWake);
+            const trailingCommand = parts[parts.length - 1].trim();
+
+            // Duck volume/pause active music to clarify mic input
+            await checkActiveDevice();
+            const playerState = await fetchFromSpotify("/v1/me/player");
+            wasPlayingBeforeDucking = playerState && playerState.is_playing;
+            
+            if (wasPlayingBeforeDucking) {
+                console.log("[Voice Daemon] Ducking playback...");
+                await fetchFromSpotify("/v1/me/player/pause", "PUT");
+            }
+
+            if (trailingCommand) {
+                // One-shot execution
+                transcriptDisplay.textContent = `Processing: "${trailingCommand}"`;
+                await parseAndExecuteVoiceCommand(trailingCommand);
+                
+                const isPauseCommand = /pause|stop|boss|freeze/.test(trailingCommand);
+                const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(trailingCommand);
+                if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
+                    setTimeout(async () => {
+                        console.log("[Voice Daemon] Restoring playback...");
+                        await fetchFromSpotify("/v1/me/player/play", "PUT");
+                        checkActiveDevice();
+                    }, 1000);
+                }
+            } else {
+                // Two-step execution: set state and wait for separate command
+                isWakeWordActive = true;
+                assistantPrompt.textContent = "Listening to Command...";
+                assistantPrompt.style.color = "var(--neon-green)";
+                transcriptDisplay.textContent = "Speak your command now...";
+                
+                // Timeout after 6 seconds of silence
+                wakeWordTimeout = setTimeout(() => {
+                    isWakeWordActive = false;
+                    assistantPrompt.textContent = "Listening for Wake Word...";
+                    assistantPrompt.style.color = "var(--text-primary)";
+                    transcriptDisplay.textContent = "Wake word timed out. Say 'Alexa'...";
+                    
+                    if (wasPlayingBeforeDucking) {
+                        fetchFromSpotify("/v1/me/player/play", "PUT");
+                    }
+                }, 6000);
+            }
         }
     };
 
