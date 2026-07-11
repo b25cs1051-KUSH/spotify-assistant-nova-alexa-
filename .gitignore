@@ -1,0 +1,36 @@
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+bin/
+include/
+lib/
+share/
+
+# Local Credentials & Token Cache
+.env
+.cache
+.env.local
+
+# Python Caches & Compiled Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# IDE Settings & System Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Developer Scratchpads & Transcriptions
+scratch/
+prompt.txt
+device_info_help.txt
+learnings.txt
+nova-spec.md

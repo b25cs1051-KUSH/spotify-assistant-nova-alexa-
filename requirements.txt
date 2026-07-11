@@ -1,0 +1,10 @@
+spotipy==2.24.0
+python-dotenv==1.0.1
+SpeechRecognition==3.10.4
+# standard-aifc is required for Python 3.13+ because PEP 594 removed the 'aifc' module from the standard library.
+standard-aifc==3.13.0
+# setuptools is required for Python 3.12+ because PEP 632 removed the 'distutils' module from the standard library, which SpeechRecognition imports.
+setuptools>=70.0.0
+# Note: PyAudio is required by SpeechRecognition for microphone access.
+# If installation fails on Windows, try running: pip install pyaudio
+PyAudio==0.2.14
