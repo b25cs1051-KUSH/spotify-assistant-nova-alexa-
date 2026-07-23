@@ -460,64 +460,71 @@ function initializeSpeechEngine() {
         }
 
         // Case B: Listening for wake word trigger
-        const wakeWords = ["alexa", "nova", "innova", "noa", "alexis", "alexa's"];
+        // Use exact word boundary matching (\b) so partial words or ambient noise ("noah", "synonym") never false-trigger
+        const wordsArray = textLower.match(/\b\w+\b/g) || [];
+        const wordsSet = new Set(wordsArray);
+        
+        const wakeWordList = ["alexa", "nova", "innova", "alexis"];
         let matchedWake = null;
 
-        for (const w of wakeWords) {
-            if (textLower.includes(w)) {
+        for (const w of wakeWordList) {
+            if (wordsSet.has(w)) {
                 matchedWake = w;
                 break;
             }
         }
 
-        if (matchedWake) {
-            console.log(`[Wake Word] Detected: ${matchedWake}`);
+        // If no wake word was spoken in this phrase, ignore it completely! Music continues playing.
+        if (!matchedWake) {
+            return;
+        }
+
+        console.log(`[Wake Word] Detected trigger: "${matchedWake}" in phrase: "${text}"`);
+        
+        // Extract trailing command (what was spoken after the wake word in the same sentence)
+        const parts = textLower.split(matchedWake);
+        const trailingCommand = parts[parts.length - 1].trim();
+
+        // Duck volume/pause active music ONLY when a legitimate wake word is matched!
+        wasPlayingBeforeDucking = false;
+        console.log("[Voice Daemon] Ducking active playback...");
+        const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
+        if (pauseRes === true) {
+            wasPlayingBeforeDucking = true;
+        }
+
+        if (trailingCommand && trailingCommand.length > 1) {
+            // One-shot execution: User said "Alexa play Starboy" or "Alexa next"
+            transcriptDisplay.textContent = `Processing: "${trailingCommand}"`;
+            await parseAndExecuteVoiceCommand(trailingCommand);
             
-            // Split to check if the user said the command in the same breath (e.g. "Alexa play Despacito")
-            const parts = textLower.split(matchedWake);
-            const trailingCommand = parts[parts.length - 1].trim();
-
-            // Duck volume/pause active music immediately (0ms pre-checks, 1 network call)
-            wasPlayingBeforeDucking = false;
-            console.log("[Voice Daemon] Ducking playback...");
-            const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
-            if (pauseRes === true) {
-                wasPlayingBeforeDucking = true;
+            const isPauseCommand = /pause|stop|boss|freeze/.test(trailingCommand);
+            const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(trailingCommand);
+            if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
+                setTimeout(async () => {
+                    console.log("[Voice Daemon] Restoring playback...");
+                    await fetchFromSpotify("/v1/me/player/play", "PUT");
+                    checkActiveDevice();
+                }, 1000);
             }
-
-            if (trailingCommand) {
-                // One-shot execution
-                transcriptDisplay.textContent = `Processing: "${trailingCommand}"`;
-                await parseAndExecuteVoiceCommand(trailingCommand);
+        } else {
+            // Two-step execution: User said "Alexa". Duck music, change UI state, and wait for command.
+            isWakeWordActive = true;
+            assistantPrompt.textContent = "Listening to Command...";
+            assistantPrompt.style.color = "var(--neon-green)";
+            transcriptDisplay.textContent = "Speak your command now...";
+            
+            // Timeout after 6 seconds if no command is spoken
+            wakeWordTimeout = setTimeout(() => {
+                isWakeWordActive = false;
+                assistantPrompt.textContent = "Listening for Wake Word...";
+                assistantPrompt.style.color = "var(--text-primary)";
+                transcriptDisplay.textContent = "Wake word timed out. Say 'Alexa'...";
                 
-                const isPauseCommand = /pause|stop|boss|freeze/.test(trailingCommand);
-                const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(trailingCommand);
-                if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
-                    setTimeout(async () => {
-                        console.log("[Voice Daemon] Restoring playback...");
-                        await fetchFromSpotify("/v1/me/player/play", "PUT");
-                        checkActiveDevice();
-                    }, 1000);
+                if (wasPlayingBeforeDucking) {
+                    fetchFromSpotify("/v1/me/player/play", "PUT");
                 }
-            } else {
-                // Two-step execution: set state and wait for separate command
-                isWakeWordActive = true;
-                assistantPrompt.textContent = "Listening to Command...";
-                assistantPrompt.style.color = "var(--neon-green)";
-                transcriptDisplay.textContent = "Speak your command now...";
-                
-                // Timeout after 6 seconds of silence
-                wakeWordTimeout = setTimeout(() => {
-                    isWakeWordActive = false;
-                    assistantPrompt.textContent = "Listening for Wake Word...";
-                    assistantPrompt.style.color = "var(--text-primary)";
-                    transcriptDisplay.textContent = "Wake word timed out. Say 'Alexa'...";
-                    
-                    if (wasPlayingBeforeDucking) {
-                        fetchFromSpotify("/v1/me/player/play", "PUT");
-                    }
-                }, 6000);
-            }
+            }, 6000);
         }
     };
 
