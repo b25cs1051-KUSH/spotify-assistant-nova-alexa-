@@ -813,61 +813,20 @@ function setupTrainerListeners() {
     const noiseCountSpan = document.getElementById("noise-count");
 
     if (recordAlexaBtn) {
-        recordAlexaBtn.addEventListener("click", async () => {
-            if (!transferRecognizer) return;
-            recordAlexaBtn.disabled = true;
-            recordAlexaBtn.textContent = '⏳ Say "Alexa" NOW...';
-            try {
-                await transferRecognizer.collectExample("Alexa");
-                alexaSampleCount++;
-                if (alexaCountSpan) alexaCountSpan.textContent = alexaSampleCount;
-                console.log(`[TFJS] Recorded Alexa sample ${alexaSampleCount}/5`);
-            } catch (e) {
-                console.error("[TFJS] Alexa sample error:", e);
-                showDebugError("Sample error: " + e.message);
-            }
-            recordAlexaBtn.disabled = false;
-            recordAlexaBtn.textContent = `🎙️ Sample "Alexa" (${alexaSampleCount}/5)`;
-            checkAndAutoTrain();
+        recordAlexaBtn.addEventListener("click", () => {
+            collectTFJSSample("Alexa", recordAlexaBtn, alexaCountSpan);
         });
     }
 
     if (recordNovaBtn) {
-        recordNovaBtn.addEventListener("click", async () => {
-            if (!transferRecognizer) return;
-            recordNovaBtn.disabled = true;
-            recordNovaBtn.textContent = '⏳ Say "Nova" NOW...';
-            try {
-                await transferRecognizer.collectExample("Nova");
-                novaSampleCount++;
-                if (novaCountSpan) novaCountSpan.textContent = novaSampleCount;
-                console.log(`[TFJS] Recorded Nova sample ${novaSampleCount}/5`);
-            } catch (e) {
-                console.error("[TFJS] Nova sample error:", e);
-                showDebugError("Sample error: " + e.message);
-            }
-            recordNovaBtn.disabled = false;
-            recordNovaBtn.textContent = `🎙️ Sample "Nova" (${novaSampleCount}/5)`;
-            checkAndAutoTrain();
+        recordNovaBtn.addEventListener("click", () => {
+            collectTFJSSample("Nova", recordNovaBtn, novaCountSpan);
         });
     }
 
     if (recordNoiseBtn) {
-        recordNoiseBtn.addEventListener("click", async () => {
-            if (!transferRecognizer) return;
-            recordNoiseBtn.disabled = true;
-            recordNoiseBtn.textContent = '⏳ Recording Noise...';
-            try {
-                await transferRecognizer.collectExample("_background_noise_");
-                noiseSampleCount++;
-                if (noiseCountSpan) noiseCountSpan.textContent = noiseSampleCount;
-                console.log(`[TFJS] Recorded noise sample ${noiseSampleCount}/3`);
-            } catch (e) {
-                console.error("[TFJS] Noise sample error:", e);
-            }
-            recordNoiseBtn.disabled = false;
-            recordNoiseBtn.textContent = `🔊 Sample Noise (${noiseSampleCount}/3)`;
-            checkAndAutoTrain();
+        recordNoiseBtn.addEventListener("click", () => {
+            collectTFJSSample("_background_noise_", recordNoiseBtn, noiseCountSpan);
         });
     }
 
@@ -886,6 +845,72 @@ function setupTrainerListeners() {
             }
         });
     }
+}
+
+async function collectTFJSSample(label, btnElement, countSpanElement) {
+    if (!transferRecognizer) {
+        showDebugError("TFJS engine loading... Please wait 5 seconds and try again.");
+        return;
+    }
+
+    try {
+        btnElement.disabled = true;
+        const displayLabel = label === "_background_noise_" ? "Noise" : label;
+        btnElement.textContent = `⏳ Speak "${displayLabel}" NOW...`;
+
+        // 1. Request microphone permission explicitly to unlock mobile AudioContext
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+
+        // 2. Resume suspended AudioContext if needed by browser autoplay security
+        if (baseRecognizer && baseRecognizer.audioContext && baseRecognizer.audioContext.state === 'suspended') {
+            await baseRecognizer.audioContext.resume();
+            console.log("[TFJS] Resumed baseRecognizer AudioContext!");
+        }
+
+        console.log(`[TFJS] Collecting 1-second sample for "${label}"...`);
+        await transferRecognizer.collectExample(label, { durationSec: 1.0 });
+
+        if (label === "Alexa") {
+            alexaSampleCount++;
+            if (countSpanElement) countSpanElement.textContent = alexaSampleCount;
+        } else if (label === "Nova") {
+            novaSampleCount++;
+            if (countSpanElement) countSpanElement.textContent = novaSampleCount;
+        } else if (label === "_background_noise_") {
+            noiseSampleCount++;
+            if (countSpanElement) countSpanElement.textContent = noiseSampleCount;
+        }
+
+        const currentCount = getSampleCount(label);
+        console.log(`[TFJS Sample Success] "${label}" recorded! Count: ${currentCount}`);
+
+        // Flash visual confirmation
+        btnElement.textContent = `✅ Saved! (${currentCount})`;
+        setTimeout(() => {
+            btnElement.disabled = false;
+            btnElement.textContent = label === "_background_noise_" ? 
+                `🔊 Sample Noise (${noiseSampleCount}/3)` : 
+                `🎙️ Sample "${label}" (${currentCount}/5)`;
+        }, 800);
+
+        checkAndAutoTrain();
+    } catch (err) {
+        console.error(`[TFJS Sample Error] "${label}":`, err);
+        showDebugError(`Recording error: ${err.message || err}`);
+        btnElement.disabled = false;
+        const currentCount = getSampleCount(label);
+        btnElement.textContent = label === "_background_noise_" ? 
+            `🔊 Sample Noise (${noiseSampleCount}/3)` : 
+            `🎙️ Sample "${label}" (${currentCount}/5)`;
+    }
+}
+
+function getSampleCount(label) {
+    if (label === "Alexa") return alexaSampleCount;
+    if (label === "Nova") return novaSampleCount;
+    return noiseSampleCount;
 }
 
 function checkAndAutoTrain() {
