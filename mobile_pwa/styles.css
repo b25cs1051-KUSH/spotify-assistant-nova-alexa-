@@ -206,17 +206,59 @@ header h1 {
     gap: 8px;
     background: rgba(0, 0, 0, 0.4);
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 4px 8px;
     border: 1px dashed rgba(30, 215, 96, 0.4);
     overflow: hidden;
 }
 
-.uri-display {
+.uri-input {
     font-family: monospace;
     font-size: 0.75rem;
     color: var(--neon-green);
-    word-break: break-all;
+    background: transparent;
+    border: none;
+    padding: 6px 0;
     flex: 1;
+}
+
+.uri-input:focus {
+    border: none;
+}
+
+.uri-guide-details {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.uri-guide-summary {
+    cursor: pointer;
+    color: var(--neon-green);
+    font-weight: 600;
+    margin-bottom: 6px;
+    outline: none;
+}
+
+.uri-guide-list {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.guide-code {
+    display: block;
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: var(--neon-green);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 6px 8px;
+    border-radius: 4px;
+    word-break: break-all;
+    user-select: all;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .copy-feedback {

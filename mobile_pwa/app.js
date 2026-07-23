@@ -1,5 +1,10 @@
-// Spotify OAuth Configurations (Normalized Redirect URI to guarantee exact match in Spotify Dashboard)
+// Spotify OAuth Configurations (Normalized Redirect URI with manual override support)
 function getNormalizedRedirectURI() {
+    const savedCustomUri = localStorage.getItem("spotify_custom_redirect_uri");
+    if (savedCustomUri && savedCustomUri.trim()) {
+        return savedCustomUri.trim();
+    }
+
     let origin = window.location.origin;
     let pathname = window.location.pathname;
     
@@ -16,7 +21,7 @@ function getNormalizedRedirectURI() {
     return origin + pathname;
 }
 
-const REDIRECT_URI = getNormalizedRedirectURI();
+let REDIRECT_URI = getNormalizedRedirectURI();
 const AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
 const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 const SCOPES = "user-modify-playback-state user-read-playback-state user-read-private user-library-read";
@@ -97,11 +102,18 @@ async function generateCodeChallenge(v) {
 
 async function redirectToSpotifyAuth() {
     const clientIdInput = document.getElementById("client-id-input");
-    const inputVal = clientIdInput ? clientIdInput.value.trim() : "";
+    const redirectUriInput = document.getElementById("redirect-uri-input");
 
+    const inputVal = clientIdInput ? clientIdInput.value.trim() : "";
     if (inputVal) {
         clientID = inputVal;
         localStorage.setItem("spotify_client_id", clientID);
+    }
+
+    const customUriVal = redirectUriInput ? redirectUriInput.value.trim() : "";
+    if (customUriVal) {
+        localStorage.setItem("spotify_custom_redirect_uri", customUriVal);
+        REDIRECT_URI = customUriVal;
     }
 
     if (!clientID) {
@@ -769,27 +781,41 @@ nextBtn.addEventListener("click", async () => {
 
 // App Startup Initializer
 window.addEventListener("DOMContentLoaded", () => {
-    // Populate Redirect URI display and saved Client ID
-    const redirectUriDisplay = document.getElementById("redirect-uri-display");
+    // Populate Redirect URI input and saved Client ID
+    const redirectUriInput = document.getElementById("redirect-uri-input");
     const clientIdInput = document.getElementById("client-id-input");
     const copyUriBtn = document.getElementById("copy-uri-btn");
     const copyFeedback = document.getElementById("copy-feedback");
 
-    if (redirectUriDisplay) {
-        redirectUriDisplay.textContent = REDIRECT_URI;
+    if (redirectUriInput) {
+        redirectUriInput.value = REDIRECT_URI;
+        redirectUriInput.addEventListener("change", () => {
+            const val = redirectUriInput.value.trim();
+            if (val) {
+                localStorage.setItem("spotify_custom_redirect_uri", val);
+                REDIRECT_URI = val;
+            } else {
+                localStorage.removeItem("spotify_custom_redirect_uri");
+                REDIRECT_URI = getNormalizedRedirectURI();
+                redirectUriInput.value = REDIRECT_URI;
+            }
+        });
     }
+
     if (clientIdInput && clientID) {
         clientIdInput.value = clientID;
     }
+
     if (copyUriBtn) {
         copyUriBtn.addEventListener("click", () => {
-            navigator.clipboard.writeText(REDIRECT_URI).then(() => {
+            const uriToCopy = redirectUriInput ? redirectUriInput.value.trim() : REDIRECT_URI;
+            navigator.clipboard.writeText(uriToCopy).then(() => {
                 if (copyFeedback) {
                     copyFeedback.classList.remove("hidden");
                     setTimeout(() => copyFeedback.classList.add("hidden"), 2500);
                 }
             }).catch(() => {
-                prompt("Copy your exact Redirect URI:", REDIRECT_URI);
+                prompt("Copy your exact Redirect URI:", uriToCopy);
             });
         });
     }

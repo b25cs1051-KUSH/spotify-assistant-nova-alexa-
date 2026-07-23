@@ -40,12 +40,22 @@
                     <label for="client-id-input" class="config-label">Spotify Client ID</label>
                     <input type="text" id="client-id-input" class="config-input" placeholder="Paste Client ID from Developer Dashboard">
                     
-                    <label class="config-label" style="margin-top: 10px;">Exact Redirect URI (Register in Spotify Dashboard):</label>
+                    <label for="redirect-uri-input" class="config-label" style="margin-top: 10px;">Redirect URI (Editable / Sent to Spotify):</label>
                     <div class="uri-copy-container">
-                        <code id="redirect-uri-display" class="uri-display">Calculating...</code>
-                        <button id="copy-uri-btn" class="btn btn-secondary btn-sm" type="button">Copy URI</button>
+                        <input type="text" id="redirect-uri-input" class="config-input uri-input" placeholder="Redirect URI">
+                        <button id="copy-uri-btn" class="btn btn-secondary btn-sm" type="button">Copy</button>
                     </div>
                     <span id="copy-feedback" class="copy-feedback hidden">Copied to clipboard!</span>
+                    
+                    <details class="uri-guide-details" style="margin-top: 8px;">
+                        <summary class="uri-guide-summary">📋 View All URIs to register in Spotify Dashboard</summary>
+                        <div class="uri-guide-list">
+                            <p style="margin-bottom: 4px;">Add <strong>ALL THREE</strong> of these Redirect URIs in your Spotify Developer Dashboard settings to guarantee a 100% match:</p>
+                            <code id="uri-var-1" class="guide-code">https://b25cs1051-kush.github.io/spotify-assistant-nova-alexa-/mobile_pwa/</code>
+                            <code id="uri-var-2" class="guide-code">https://b25cs1051-kush.github.io/spotify-assistant-nova-alexa-/mobile_pwa</code>
+                            <code id="uri-var-3" class="guide-code">https://b25cs1051-KUSH.github.io/spotify-assistant-nova-alexa-/mobile_pwa/</code>
+                        </div>
+                    </details>
                 </div>
 
                 <button id="login-btn" class="btn btn-primary ripple">
