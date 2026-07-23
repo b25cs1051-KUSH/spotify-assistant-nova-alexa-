@@ -61,6 +61,7 @@ let activePlaybackDevice = null;
 let isWakeWordActive = false;
 let wakeWordTimeout = null;
 let ignoreAudioUntil = 0;
+let mediaStream = null;
 
 function suppressAcousticFeedback(durationMs = 2500) {
     ignoreAudioUntil = Date.now() + durationMs;
@@ -757,24 +758,59 @@ function toggleListeningLoop() {
     }
 }
 
-function startListeningLoop() {
-    if (recognition && !isListeningLoopActive) {
+async function startListeningLoop() {
+    if (isListeningLoopActive) return;
+    
+    // Acquire Web Audio stream with hardware echo cancellation first so Mobile OS allows continuous playback!
+    try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+            console.log("[Web Audio] Stream acquired with echo cancellation enabled.");
+        }
+    } catch (e) {
+        console.warn("[Web Audio] getUserMedia stream warning:", e);
+    }
+
+    if (recognition) {
         isListeningLoopActive = true;
         isWakeWordActive = false;
         wasPlayingBeforeDucking = false;
         if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
-        recognition.start();
+        try {
+            recognition.start();
+        } catch (err) {
+            console.warn("[Speech] Recognition start warning:", err);
+        }
         requestWakeLock();
     }
 }
 
 function stopListeningLoop() {
-    if (recognition && isListeningLoopActive) {
+    if (isListeningLoopActive) {
         isListeningLoopActive = false;
         isWakeWordActive = false;
         wasPlayingBeforeDucking = false;
         if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
-        recognition.stop();
+        
+        if (recognition) {
+            try {
+                recognition.stop();
+            } catch (e) {}
+        }
+        
+        if (mediaStream) {
+            try {
+                mediaStream.getTracks().forEach(track => track.stop());
+            } catch (e) {}
+            mediaStream = null;
+        }
+
         releaseWakeLock();
         assistantSection.classList.remove("listening");
         assistantPrompt.textContent = "Wake Word Off";
