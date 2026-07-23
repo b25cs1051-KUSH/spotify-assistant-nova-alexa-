@@ -34,6 +34,20 @@
                 <div class="spotify-logo-icon"></div>
                 <h2>Connect Your Account</h2>
                 <p>Log in with Spotify Premium to authorize hands-free playback control.</p>
+                
+                <!-- Client ID & Redirect URI Helper Box -->
+                <div class="auth-config-box">
+                    <label for="client-id-input" class="config-label">Spotify Client ID</label>
+                    <input type="text" id="client-id-input" class="config-input" placeholder="Paste Client ID from Developer Dashboard">
+                    
+                    <label class="config-label" style="margin-top: 10px;">Exact Redirect URI (Register in Spotify Dashboard):</label>
+                    <div class="uri-copy-container">
+                        <code id="redirect-uri-display" class="uri-display">Calculating...</code>
+                        <button id="copy-uri-btn" class="btn btn-secondary btn-sm" type="button">Copy URI</button>
+                    </div>
+                    <span id="copy-feedback" class="copy-feedback hidden">Copied to clipboard!</span>
+                </div>
+
                 <button id="login-btn" class="btn btn-primary ripple">
                     Connect Spotify
                 </button>

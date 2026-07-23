@@ -1,5 +1,22 @@
-// Spotify OAuth Configurations
-const REDIRECT_URI = window.location.origin + window.location.pathname;
+// Spotify OAuth Configurations (Normalized Redirect URI to guarantee exact match in Spotify Dashboard)
+function getNormalizedRedirectURI() {
+    let origin = window.location.origin;
+    let pathname = window.location.pathname;
+    
+    // Strip index.html if present
+    if (pathname.endsWith("index.html")) {
+        pathname = pathname.substring(0, pathname.length - "index.html".length);
+    }
+    
+    // Ensure trailing slash
+    if (!pathname.endsWith("/")) {
+        pathname += "/";
+    }
+    
+    return origin + pathname;
+}
+
+const REDIRECT_URI = getNormalizedRedirectURI();
 const AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
 const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 const SCOPES = "user-modify-playback-state user-read-playback-state user-read-private user-library-read";
@@ -79,11 +96,18 @@ async function generateCodeChallenge(v) {
 // ==========================================
 
 async function redirectToSpotifyAuth() {
-    // Ask for Client ID if not configured
-    if (!clientID) {
-        clientID = prompt("Please enter your Spotify Client ID (from Developer Dashboard):");
-        if (!clientID) return;
+    const clientIdInput = document.getElementById("client-id-input");
+    const inputVal = clientIdInput ? clientIdInput.value.trim() : "";
+
+    if (inputVal) {
+        clientID = inputVal;
         localStorage.setItem("spotify_client_id", clientID);
+    }
+
+    if (!clientID) {
+        showDebugError("Please paste your Spotify Client ID in the input box above first.");
+        if (clientIdInput) clientIdInput.focus();
+        return;
     }
 
     const verifier = generateCodeVerifier();
@@ -99,11 +123,20 @@ async function redirectToSpotifyAuth() {
         scope: SCOPES
     });
 
+    console.log("[OAuth] Initiating authorization with Redirect URI:", REDIRECT_URI);
     window.location.href = `${AUTH_ENDPOINT}?${params.toString()}`;
 }
 
 async function handleAuthRedirectCallback() {
     const urlParams = new URLSearchParams(window.location.search);
+    const errorParam = urlParams.get("error");
+    
+    if (errorParam) {
+        console.error("Auth error parameter from Spotify:", errorParam);
+        showDebugError(`Spotify Auth Error: ${errorParam}. Make sure Redirect URI matches exactly!`);
+        return;
+    }
+
     const code = urlParams.get("code");
     if (!code) return;
 
@@ -112,6 +145,7 @@ async function handleAuthRedirectCallback() {
 
     if (!verifier || !clientID) {
         console.error("Missing verifier or Client ID.");
+        showDebugError("Missing OAuth session data. Please re-enter your Client ID and try again.");
         return;
     }
 
@@ -136,6 +170,7 @@ async function handleAuthRedirectCallback() {
             initializeDashboard();
         } else {
             console.error("Token exchange failed:", data);
+            showDebugError(`Token Error: ${data.error_description || data.error || 'Token exchange failed'}`);
         }
     } catch (err) {
         console.error("Redirect exchange error:", err);
@@ -430,14 +465,12 @@ function initializeSpeechEngine() {
             const parts = textLower.split(matchedWake);
             const trailingCommand = parts[parts.length - 1].trim();
 
-            // Duck volume/pause active music to clarify mic input
-            await checkActiveDevice();
-            const playerState = await fetchFromSpotify("/v1/me/player");
-            wasPlayingBeforeDucking = playerState && playerState.is_playing;
-            
-            if (wasPlayingBeforeDucking) {
-                console.log("[Voice Daemon] Ducking playback...");
-                await fetchFromSpotify("/v1/me/player/pause", "PUT");
+            // Duck volume/pause active music immediately (0ms pre-checks, 1 network call)
+            wasPlayingBeforeDucking = false;
+            console.log("[Voice Daemon] Ducking playback...");
+            const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
+            if (pauseRes === true) {
+                wasPlayingBeforeDucking = true;
             }
 
             if (trailingCommand) {
@@ -512,23 +545,19 @@ async function parseAndExecuteVoiceCommand(command) {
         return;
     }
 
-    // 3. Skip Next (Resumes first to prevent Connect freezes)
+    // 3. Skip Next (Direct execution, no pre-resume lag)
     if (words.includes("next") || words.includes("skip")) {
-        await fetchFromSpotify("/v1/me/player/play", "PUT");
-        setTimeout(async () => {
-            await fetchFromSpotify("/v1/me/player/next", "POST");
-            setTimeout(checkActiveDevice, 600);
-        }, 500);
+        console.log("[Playback] Skipping next...");
+        await fetchFromSpotify("/v1/me/player/next", "POST");
+        setTimeout(checkActiveDevice, 300);
         return;
     }
 
-    // 4. Skip Previous
+    // 4. Skip Previous (Direct execution, no pre-resume lag)
     if (words.includes("previous") || words.includes("prev") || words.includes("back")) {
-        await fetchFromSpotify("/v1/me/player/play", "PUT");
-        setTimeout(async () => {
-            await fetchFromSpotify("/v1/me/player/previous", "POST");
-            setTimeout(checkActiveDevice, 600);
-        }, 500);
+        console.log("[Playback] Returning previous...");
+        await fetchFromSpotify("/v1/me/player/previous", "POST");
+        setTimeout(checkActiveDevice, 300);
         return;
     }
 
@@ -740,6 +769,31 @@ nextBtn.addEventListener("click", async () => {
 
 // App Startup Initializer
 window.addEventListener("DOMContentLoaded", () => {
+    // Populate Redirect URI display and saved Client ID
+    const redirectUriDisplay = document.getElementById("redirect-uri-display");
+    const clientIdInput = document.getElementById("client-id-input");
+    const copyUriBtn = document.getElementById("copy-uri-btn");
+    const copyFeedback = document.getElementById("copy-feedback");
+
+    if (redirectUriDisplay) {
+        redirectUriDisplay.textContent = REDIRECT_URI;
+    }
+    if (clientIdInput && clientID) {
+        clientIdInput.value = clientID;
+    }
+    if (copyUriBtn) {
+        copyUriBtn.addEventListener("click", () => {
+            navigator.clipboard.writeText(REDIRECT_URI).then(() => {
+                if (copyFeedback) {
+                    copyFeedback.classList.remove("hidden");
+                    setTimeout(() => copyFeedback.classList.add("hidden"), 2500);
+                }
+            }).catch(() => {
+                prompt("Copy your exact Redirect URI:", REDIRECT_URI);
+            });
+        });
+    }
+
     handleAuthRedirectCallback();
     initializeSpeechEngine();
     

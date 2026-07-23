@@ -161,6 +161,72 @@ header h1 {
     gap: 12px;
 }
 
+.auth-config-box {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 14px;
+    margin: 8px 0;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.config-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.config-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.config-input:focus {
+    border-color: var(--neon-green);
+}
+
+.uri-copy-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    padding: 8px 10px;
+    border: 1px dashed rgba(30, 215, 96, 0.4);
+    overflow: hidden;
+}
+
+.uri-display {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--neon-green);
+    word-break: break-all;
+    flex: 1;
+}
+
+.copy-feedback {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--neon-green);
+    margin-top: 4px;
+    font-weight: 600;
+}
+
 .spotify-logo-icon {
     width: 48px;
     height: 48px;
