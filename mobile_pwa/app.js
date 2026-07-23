@@ -568,10 +568,12 @@ function initializeSpeechEngine() {
     };
 
     recognition.onend = () => {
-        // Auto-restart loop for continuous hands-free operation
+        console.log("[Speech Engine] Command window closed. Returning to WebRTC VAD Standby.");
+        isWakeWordActive = false;
         if (isListeningLoopActive) {
-            console.log("[Speech] Loop ended. Auto-restarting...");
-            recognition.start();
+            assistantPrompt.textContent = "Hands-Free Engine Active";
+            assistantPrompt.style.color = "var(--text-primary)";
+            transcriptDisplay.textContent = 'Standby listening... Speak "Alexa" or your command...';
         }
     };
 }
