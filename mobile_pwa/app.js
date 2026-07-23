@@ -831,40 +831,14 @@ function startVADMonitoring() {
 
 async function triggerCommandCaptureWindow() {
     if (isWakeWordActive) return;
-    isWakeWordActive = true;
-
-    // Duck volume/pause active music ONLY when voice is detected!
-    wasPlayingBeforeDucking = false;
-    console.log("[Voice Daemon] Ducking active playback for voice command window...");
-    const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
-    if (pauseRes === true) {
-        wasPlayingBeforeDucking = true;
-    }
 
     if (recognition) {
         try {
             recognition.start();
         } catch (e) {
-            console.warn("[Speech] Recognition already active:", e);
+            console.warn("[Speech] Recognition window check:", e);
         }
     }
-
-    // Dynamic 500ms / 6s timeout protection
-    wakeWordTimeout = setTimeout(() => {
-        if (isWakeWordActive) {
-            isWakeWordActive = false;
-            if (recognition) try { recognition.stop(); } catch(e){}
-            assistantPrompt.textContent = "Hands-Free Engine Active";
-            assistantPrompt.style.color = "var(--text-primary)";
-            transcriptDisplay.textContent = 'Standby listening... Say "Alexa" or speak...';
-            
-            if (wasPlayingBeforeDucking) {
-                wasPlayingBeforeDucking = false;
-                suppressAcousticFeedback(2500);
-                fetchFromSpotify("/v1/me/player/play", "PUT");
-            }
-        }
-    }, 5000);
 }
 
 function stopListeningLoop() {
