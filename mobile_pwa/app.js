@@ -66,9 +66,9 @@ let ignoreAudioUntil = 0;
 let baseRecognizer = null;
 let transferRecognizer = null;
 let customWakeWordModelLoaded = false;
-const MODEL_INDEXEDDB_URL = "indexeddb://spotify-assistant-wake-word";
-const CUSTOM_WAKE_WORD = "Nova";
-let wakeSampleCount = 0;
+const MODEL_INDEXEDDB_URL = "indexeddb://spotify-assistant-wake-word-v2";
+let alexaSampleCount = 0;
+let novaSampleCount = 0;
 let noiseSampleCount = 0;
 
 function suppressAcousticFeedback(durationMs = 2500) {
@@ -776,21 +776,20 @@ async function initTensorFlowSpeechEngine() {
         baseRecognizer = speechCommands.create("BROWSER_FFT");
         await baseRecognizer.ensureModelLoaded();
 
-        transferRecognizer = baseRecognizer.createTransfer(CUSTOM_WAKE_WORD);
-        console.log("[TFJS] Base model loaded. Checking IndexedDB for saved custom model...");
+        // Create transfer recognizer for dual wake words: Alexa and Nova
+        transferRecognizer = baseRecognizer.createTransfer("Alexa_Nova");
+        console.log("[TFJS] Base model loaded. Checking IndexedDB for saved model...");
 
-        // Try loading saved model from IndexedDB
         try {
             await transferRecognizer.load(MODEL_INDEXEDDB_URL);
             customWakeWordModelLoaded = true;
-            console.log("[TFJS Success] Loaded custom wake word model from IndexedDB!");
+            console.log("[TFJS Success] Loaded custom Alexa/Nova wake word model from IndexedDB!");
             if (tfjsStatusBadge) {
                 tfjsStatusBadge.textContent = "Model Ready (IndexedDB)";
                 tfjsStatusBadge.className = "badge success-badge";
             }
-            if (retrainBtn) retrainBtn.classList.remove("hidden");
         } catch (err) {
-            console.log("[TFJS] No saved IndexedDB model found. One-time training required.");
+            console.log("[TFJS] No saved IndexedDB model found. Record samples to auto-train.");
             customWakeWordModelLoaded = false;
             if (tfjsStatusBadge) {
                 tfjsStatusBadge.textContent = "Training Needed";
@@ -805,29 +804,51 @@ async function initTensorFlowSpeechEngine() {
 }
 
 function setupTrainerListeners() {
-    const recordWakeBtn = document.getElementById("record-wake-btn");
+    const recordAlexaBtn = document.getElementById("record-alexa-btn");
+    const recordNovaBtn = document.getElementById("record-nova-btn");
     const recordNoiseBtn = document.getElementById("record-noise-btn");
-    const trainSaveBtn = document.getElementById("train-save-btn");
     const retrainBtn = document.getElementById("retrain-btn");
-    const wakeCountSpan = document.getElementById("wake-count");
+    const alexaCountSpan = document.getElementById("alexa-count");
+    const novaCountSpan = document.getElementById("nova-count");
     const noiseCountSpan = document.getElementById("noise-count");
 
-    if (recordWakeBtn) {
-        recordWakeBtn.addEventListener("click", async () => {
+    if (recordAlexaBtn) {
+        recordAlexaBtn.addEventListener("click", async () => {
             if (!transferRecognizer) return;
-            recordWakeBtn.disabled = true;
-            recordWakeBtn.textContent = '⏳ Say "Nova"...';
+            recordAlexaBtn.disabled = true;
+            recordAlexaBtn.textContent = '⏳ Say "Alexa" NOW...';
             try {
-                await transferRecognizer.collectExample(CUSTOM_WAKE_WORD);
-                wakeSampleCount++;
-                if (wakeCountSpan) wakeCountSpan.textContent = wakeSampleCount;
-                console.log(`[TFJS] Recorded wake sample ${wakeSampleCount}/10`);
+                await transferRecognizer.collectExample("Alexa");
+                alexaSampleCount++;
+                if (alexaCountSpan) alexaCountSpan.textContent = alexaSampleCount;
+                console.log(`[TFJS] Recorded Alexa sample ${alexaSampleCount}/5`);
             } catch (e) {
-                console.error("[TFJS] Wake sample error:", e);
+                console.error("[TFJS] Alexa sample error:", e);
+                showDebugError("Sample error: " + e.message);
             }
-            recordWakeBtn.disabled = false;
-            recordWakeBtn.textContent = `🎙️ Sample "${CUSTOM_WAKE_WORD}" (${wakeSampleCount}/10)`;
-            checkTrainingReady();
+            recordAlexaBtn.disabled = false;
+            recordAlexaBtn.textContent = `🎙️ Sample "Alexa" (${alexaSampleCount}/5)`;
+            checkAndAutoTrain();
+        });
+    }
+
+    if (recordNovaBtn) {
+        recordNovaBtn.addEventListener("click", async () => {
+            if (!transferRecognizer) return;
+            recordNovaBtn.disabled = true;
+            recordNovaBtn.textContent = '⏳ Say "Nova" NOW...';
+            try {
+                await transferRecognizer.collectExample("Nova");
+                novaSampleCount++;
+                if (novaCountSpan) novaCountSpan.textContent = novaSampleCount;
+                console.log(`[TFJS] Recorded Nova sample ${novaSampleCount}/5`);
+            } catch (e) {
+                console.error("[TFJS] Nova sample error:", e);
+                showDebugError("Sample error: " + e.message);
+            }
+            recordNovaBtn.disabled = false;
+            recordNovaBtn.textContent = `🎙️ Sample "Nova" (${novaSampleCount}/5)`;
+            checkAndAutoTrain();
         });
     }
 
@@ -840,32 +861,24 @@ function setupTrainerListeners() {
                 await transferRecognizer.collectExample("_background_noise_");
                 noiseSampleCount++;
                 if (noiseCountSpan) noiseCountSpan.textContent = noiseSampleCount;
-                console.log(`[TFJS] Recorded noise sample ${noiseSampleCount}/10`);
+                console.log(`[TFJS] Recorded noise sample ${noiseSampleCount}/3`);
             } catch (e) {
                 console.error("[TFJS] Noise sample error:", e);
             }
             recordNoiseBtn.disabled = false;
-            recordNoiseBtn.textContent = `🔊 Sample Noise (${noiseSampleCount}/10)`;
-            checkTrainingReady();
-        });
-    }
-
-    if (trainSaveBtn) {
-        trainSaveBtn.addEventListener("click", async () => {
-            await trainAndSaveModel();
+            recordNoiseBtn.textContent = `🔊 Sample Noise (${noiseSampleCount}/3)`;
+            checkAndAutoTrain();
         });
     }
 
     if (retrainBtn) {
         retrainBtn.addEventListener("click", () => {
-            wakeSampleCount = 0;
+            alexaSampleCount = 0;
+            novaSampleCount = 0;
             noiseSampleCount = 0;
-            if (wakeCountSpan) wakeCountSpan.textContent = "0";
+            if (alexaCountSpan) alexaCountSpan.textContent = "0";
+            if (novaCountSpan) novaCountSpan.textContent = "0";
             if (noiseCountSpan) noiseCountSpan.textContent = "0";
-            if (trainSaveBtn) {
-                trainSaveBtn.disabled = true;
-                trainSaveBtn.classList.add("disabled");
-            }
             const tfjsStatusBadge = document.getElementById("tfjs-status-badge");
             if (tfjsStatusBadge) {
                 tfjsStatusBadge.textContent = "Training Needed";
@@ -875,40 +888,30 @@ function setupTrainerListeners() {
     }
 }
 
-function checkTrainingReady() {
-    const trainSaveBtn = document.getElementById("train-save-btn");
-    if (wakeSampleCount >= 5 && noiseSampleCount >= 5) {
-        if (trainSaveBtn) {
-            trainSaveBtn.disabled = false;
-            trainSaveBtn.classList.remove("disabled");
-        }
+function checkAndAutoTrain() {
+    if (alexaSampleCount >= 5 && novaSampleCount >= 5 && noiseSampleCount >= 3) {
+        trainAndSaveModel();
     }
 }
 
 async function trainAndSaveModel() {
-    const trainSaveBtn = document.getElementById("train-save-btn");
-    const retrainBtn = document.getElementById("retrain-btn");
     const tfjsStatusBadge = document.getElementById("tfjs-status-badge");
     const trainingProgress = document.getElementById("training-progress");
 
     if (!transferRecognizer) return;
-    if (trainSaveBtn) {
-        trainSaveBtn.disabled = true;
-        trainSaveBtn.textContent = "⚡ Training...";
-    }
     if (trainingProgress) {
         trainingProgress.classList.remove("hidden");
-        trainingProgress.textContent = "Epoch: 0/25 | Loss: --";
+        trainingProgress.textContent = "⚡ Auto-Training model on Alexa & Nova...";
     }
 
     try {
-        console.log("[TFJS] Training transfer learning model...");
+        console.log("[TFJS] Auto-training model for Alexa and Nova...");
         await transferRecognizer.train({
-            epochs: 25,
+            epochs: 20,
             callback: {
                 onEpochEnd: async (epoch, logs) => {
                     if (trainingProgress) {
-                        trainingProgress.textContent = `Epoch ${epoch + 1}/25 | Loss: ${logs.loss.toFixed(4)} | Acc: ${(logs.acc || 0).toFixed(2)}`;
+                        trainingProgress.textContent = `Epoch ${epoch + 1}/20 | Loss: ${logs.loss.toFixed(4)}`;
                     }
                 }
             }
@@ -919,14 +922,12 @@ async function trainAndSaveModel() {
         customWakeWordModelLoaded = true;
 
         if (tfjsStatusBadge) {
-            tfjsStatusBadge.textContent = "Model Trained & Saved!";
+            tfjsStatusBadge.textContent = "✅ Model Ready (IndexedDB)";
             tfjsStatusBadge.className = "badge success-badge";
         }
         if (trainingProgress) {
-            trainingProgress.textContent = "✅ Saved to IndexedDB! Ready for Hands-Free use.";
+            trainingProgress.textContent = "✅ Model Saved to IndexedDB! Ready for Hands-Free use.";
         }
-        if (retrainBtn) retrainBtn.classList.remove("hidden");
-        if (trainSaveBtn) trainSaveBtn.textContent = "✅ Saved to IndexedDB";
     } catch (err) {
         console.error("[TFJS Training Error]", err);
         if (trainingProgress) trainingProgress.textContent = "Training Error: " + err.message;
@@ -961,22 +962,26 @@ async function startListeningLoop() {
     assistantSection.classList.add("listening");
     assistantPrompt.textContent = "TFJS Engine Active";
     assistantPrompt.style.color = "var(--neon-green)";
-    transcriptDisplay.textContent = `Listening locally for "${CUSTOM_WAKE_WORD}" (Zero OS Pauses)...`;
+    transcriptDisplay.textContent = 'Listening locally for "Alexa" / "Nova" (Zero OS Pauses)...';
 
     try {
-        // Start local TFJS recognizer without native SpeechRecognition (0 OS pauses!)
         transferRecognizer.listen(async (result) => {
             const scores = result.scores;
             const labels = transferRecognizer.wordLabels();
-            const wakeWordIndex = labels.indexOf(CUSTOM_WAKE_WORD);
-            const confidence = scores[wakeWordIndex];
+            
+            const alexaIndex = labels.indexOf("Alexa");
+            const novaIndex = labels.indexOf("Nova");
+            
+            const alexaConfidence = alexaIndex >= 0 ? scores[alexaIndex] : 0;
+            const novaConfidence = novaIndex >= 0 ? scores[novaIndex] : 0;
 
-            if (confidence > 0.80 && !isWakeWordActive && Date.now() > ignoreAudioUntil) {
-                console.log(`[TFJS Match] Custom wake word "${CUSTOM_WAKE_WORD}" detected with confidence: ${(confidence * 100).toFixed(1)}%`);
+            if ((alexaConfidence > 0.75 || novaConfidence > 0.75) && !isWakeWordActive && Date.now() > ignoreAudioUntil) {
+                const matchedWord = alexaConfidence > novaConfidence ? "Alexa" : "Nova";
+                console.log(`[TFJS Match] Custom wake word "${matchedWord}" detected! Confidence: ${((matchedWord === 'Alexa' ? alexaConfidence : novaConfidence) * 100).toFixed(1)}%`);
                 await triggerCommandCaptureFromTFJS();
             }
         }, {
-            probabilityThreshold: 0.80,
+            probabilityThreshold: 0.75,
             invokeCallbackOnNoiseAndUnknown: false,
             overlapFactor: 0.5
         });
