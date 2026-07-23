@@ -456,12 +456,18 @@ function initializeSpeechEngine() {
             const isPauseCommand = /pause|stop|boss|freeze/.test(textLower);
             const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(textLower);
             if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
+                const shouldRestore = wasPlayingBeforeDucking;
+                wasPlayingBeforeDucking = false;
                 setTimeout(async () => {
-                    console.log("[Voice Daemon] Restoring playback...");
-                    suppressAcousticFeedback(2500);
-                    await fetchFromSpotify("/v1/me/player/play", "PUT");
-                    checkActiveDevice();
+                    if (shouldRestore) {
+                        console.log("[Voice Daemon] Restoring playback...");
+                        suppressAcousticFeedback(2500);
+                        await fetchFromSpotify("/v1/me/player/play", "PUT");
+                        checkActiveDevice();
+                    }
                 }, 1000);
+            } else {
+                wasPlayingBeforeDucking = false;
             }
             
             setTimeout(() => {
@@ -512,12 +518,18 @@ function initializeSpeechEngine() {
             const isPauseCommand = /pause|stop|boss|freeze/.test(trailingCommand);
             const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(trailingCommand);
             if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
+                const shouldRestore = wasPlayingBeforeDucking;
+                wasPlayingBeforeDucking = false;
                 setTimeout(async () => {
-                    console.log("[Voice Daemon] Restoring playback...");
-                    suppressAcousticFeedback(2500);
-                    await fetchFromSpotify("/v1/me/player/play", "PUT");
-                    checkActiveDevice();
+                    if (shouldRestore) {
+                        console.log("[Voice Daemon] Restoring playback...");
+                        suppressAcousticFeedback(2500);
+                        await fetchFromSpotify("/v1/me/player/play", "PUT");
+                        checkActiveDevice();
+                    }
                 }, 1000);
+            } else {
+                wasPlayingBeforeDucking = false;
             }
         } else {
             // Two-step execution: User said "Alex" or "Alexa". Duck music, change UI state, and wait for command.
@@ -534,6 +546,7 @@ function initializeSpeechEngine() {
                 transcriptDisplay.textContent = "Wake word timed out. Say 'Alex' or 'Alexa'...";
                 
                 if (wasPlayingBeforeDucking) {
+                    wasPlayingBeforeDucking = false;
                     suppressAcousticFeedback(2500);
                     fetchFromSpotify("/v1/me/player/play", "PUT");
                 }
@@ -747,6 +760,9 @@ function toggleListeningLoop() {
 function startListeningLoop() {
     if (recognition && !isListeningLoopActive) {
         isListeningLoopActive = true;
+        isWakeWordActive = false;
+        wasPlayingBeforeDucking = false;
+        if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
         recognition.start();
         requestWakeLock();
     }
@@ -755,6 +771,9 @@ function startListeningLoop() {
 function stopListeningLoop() {
     if (recognition && isListeningLoopActive) {
         isListeningLoopActive = false;
+        isWakeWordActive = false;
+        wasPlayingBeforeDucking = false;
+        if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
         recognition.stop();
         releaseWakeLock();
         assistantSection.classList.remove("listening");
