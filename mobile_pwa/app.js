@@ -61,11 +61,15 @@ let activePlaybackDevice = null;
 let isWakeWordActive = false;
 let wakeWordTimeout = null;
 let ignoreAudioUntil = 0;
-let mediaStream = null;
-let audioCtx = null;
-let analyser = null;
-let vadInterval = null;
-let lastSpeechDetectedTime = 0;
+
+// TensorFlow.js Speech Commands Transfer Learning Variables
+let baseRecognizer = null;
+let transferRecognizer = null;
+let customWakeWordModelLoaded = false;
+const MODEL_INDEXEDDB_URL = "indexeddb://spotify-assistant-wake-word";
+const CUSTOM_WAKE_WORD = "Nova";
+let wakeSampleCount = 0;
+let noiseSampleCount = 0;
 
 function suppressAcousticFeedback(durationMs = 2500) {
     ignoreAudioUntil = Date.now() + durationMs;
@@ -753,7 +757,184 @@ function editDistance(s1, s2) {
 }
 
 // ==========================================
-// 6. UI ACTIONS & LOOP LIFECYCLES
+// 6. TENSORFLOW.JS SPEECH COMMANDS & TRANSFER LEARNING
+// ==========================================
+
+async function initTensorFlowSpeechEngine() {
+    const tfjsStatusBadge = document.getElementById("tfjs-status-badge");
+    const retrainBtn = document.getElementById("retrain-btn");
+
+    if (typeof speechCommands === "undefined") {
+        console.warn("[TFJS] speechCommands library not loaded yet.");
+        if (tfjsStatusBadge) tfjsStatusBadge.textContent = "TFJS CDN Pending";
+        return;
+    }
+
+    try {
+        if (tfjsStatusBadge) tfjsStatusBadge.textContent = "Loading Base Model...";
+        console.log("[TFJS] Creating BROWSER_FFT base speech commands recognizer...");
+        baseRecognizer = speechCommands.create("BROWSER_FFT");
+        await baseRecognizer.ensureModelLoaded();
+
+        transferRecognizer = baseRecognizer.createTransfer(CUSTOM_WAKE_WORD);
+        console.log("[TFJS] Base model loaded. Checking IndexedDB for saved custom model...");
+
+        // Try loading saved model from IndexedDB
+        try {
+            await transferRecognizer.load(MODEL_INDEXEDDB_URL);
+            customWakeWordModelLoaded = true;
+            console.log("[TFJS Success] Loaded custom wake word model from IndexedDB!");
+            if (tfjsStatusBadge) {
+                tfjsStatusBadge.textContent = "Model Ready (IndexedDB)";
+                tfjsStatusBadge.className = "badge success-badge";
+            }
+            if (retrainBtn) retrainBtn.classList.remove("hidden");
+        } catch (err) {
+            console.log("[TFJS] No saved IndexedDB model found. One-time training required.");
+            customWakeWordModelLoaded = false;
+            if (tfjsStatusBadge) {
+                tfjsStatusBadge.textContent = "Training Needed";
+                tfjsStatusBadge.className = "badge warning-badge";
+            }
+        }
+        setupTrainerListeners();
+    } catch (err) {
+        console.error("[TFJS Error] Initialization failed:", err);
+        if (tfjsStatusBadge) tfjsStatusBadge.textContent = "TFJS Init Error";
+    }
+}
+
+function setupTrainerListeners() {
+    const recordWakeBtn = document.getElementById("record-wake-btn");
+    const recordNoiseBtn = document.getElementById("record-noise-btn");
+    const trainSaveBtn = document.getElementById("train-save-btn");
+    const retrainBtn = document.getElementById("retrain-btn");
+    const wakeCountSpan = document.getElementById("wake-count");
+    const noiseCountSpan = document.getElementById("noise-count");
+
+    if (recordWakeBtn) {
+        recordWakeBtn.addEventListener("click", async () => {
+            if (!transferRecognizer) return;
+            recordWakeBtn.disabled = true;
+            recordWakeBtn.textContent = '⏳ Say "Nova"...';
+            try {
+                await transferRecognizer.collectExample(CUSTOM_WAKE_WORD);
+                wakeSampleCount++;
+                if (wakeCountSpan) wakeCountSpan.textContent = wakeSampleCount;
+                console.log(`[TFJS] Recorded wake sample ${wakeSampleCount}/10`);
+            } catch (e) {
+                console.error("[TFJS] Wake sample error:", e);
+            }
+            recordWakeBtn.disabled = false;
+            recordWakeBtn.textContent = `🎙️ Sample "${CUSTOM_WAKE_WORD}" (${wakeSampleCount}/10)`;
+            checkTrainingReady();
+        });
+    }
+
+    if (recordNoiseBtn) {
+        recordNoiseBtn.addEventListener("click", async () => {
+            if (!transferRecognizer) return;
+            recordNoiseBtn.disabled = true;
+            recordNoiseBtn.textContent = '⏳ Recording Noise...';
+            try {
+                await transferRecognizer.collectExample("_background_noise_");
+                noiseSampleCount++;
+                if (noiseCountSpan) noiseCountSpan.textContent = noiseSampleCount;
+                console.log(`[TFJS] Recorded noise sample ${noiseSampleCount}/10`);
+            } catch (e) {
+                console.error("[TFJS] Noise sample error:", e);
+            }
+            recordNoiseBtn.disabled = false;
+            recordNoiseBtn.textContent = `🔊 Sample Noise (${noiseSampleCount}/10)`;
+            checkTrainingReady();
+        });
+    }
+
+    if (trainSaveBtn) {
+        trainSaveBtn.addEventListener("click", async () => {
+            await trainAndSaveModel();
+        });
+    }
+
+    if (retrainBtn) {
+        retrainBtn.addEventListener("click", () => {
+            wakeSampleCount = 0;
+            noiseSampleCount = 0;
+            if (wakeCountSpan) wakeCountSpan.textContent = "0";
+            if (noiseCountSpan) noiseCountSpan.textContent = "0";
+            if (trainSaveBtn) {
+                trainSaveBtn.disabled = true;
+                trainSaveBtn.classList.add("disabled");
+            }
+            const tfjsStatusBadge = document.getElementById("tfjs-status-badge");
+            if (tfjsStatusBadge) {
+                tfjsStatusBadge.textContent = "Training Needed";
+                tfjsStatusBadge.className = "badge warning-badge";
+            }
+        });
+    }
+}
+
+function checkTrainingReady() {
+    const trainSaveBtn = document.getElementById("train-save-btn");
+    if (wakeSampleCount >= 5 && noiseSampleCount >= 5) {
+        if (trainSaveBtn) {
+            trainSaveBtn.disabled = false;
+            trainSaveBtn.classList.remove("disabled");
+        }
+    }
+}
+
+async function trainAndSaveModel() {
+    const trainSaveBtn = document.getElementById("train-save-btn");
+    const retrainBtn = document.getElementById("retrain-btn");
+    const tfjsStatusBadge = document.getElementById("tfjs-status-badge");
+    const trainingProgress = document.getElementById("training-progress");
+
+    if (!transferRecognizer) return;
+    if (trainSaveBtn) {
+        trainSaveBtn.disabled = true;
+        trainSaveBtn.textContent = "⚡ Training...";
+    }
+    if (trainingProgress) {
+        trainingProgress.classList.remove("hidden");
+        trainingProgress.textContent = "Epoch: 0/25 | Loss: --";
+    }
+
+    try {
+        console.log("[TFJS] Training transfer learning model...");
+        await transferRecognizer.train({
+            epochs: 25,
+            callback: {
+                onEpochEnd: async (epoch, logs) => {
+                    if (trainingProgress) {
+                        trainingProgress.textContent = `Epoch ${epoch + 1}/25 | Loss: ${logs.loss.toFixed(4)} | Acc: ${(logs.acc || 0).toFixed(2)}`;
+                    }
+                }
+            }
+        });
+
+        console.log("[TFJS] Training complete! Saving model to IndexedDB:", MODEL_INDEXEDDB_URL);
+        await transferRecognizer.save(MODEL_INDEXEDDB_URL);
+        customWakeWordModelLoaded = true;
+
+        if (tfjsStatusBadge) {
+            tfjsStatusBadge.textContent = "Model Trained & Saved!";
+            tfjsStatusBadge.className = "badge success-badge";
+        }
+        if (trainingProgress) {
+            trainingProgress.textContent = "✅ Saved to IndexedDB! Ready for Hands-Free use.";
+        }
+        if (retrainBtn) retrainBtn.classList.remove("hidden");
+        if (trainSaveBtn) trainSaveBtn.textContent = "✅ Saved to IndexedDB";
+    } catch (err) {
+        console.error("[TFJS Training Error]", err);
+        if (trainingProgress) trainingProgress.textContent = "Training Error: " + err.message;
+    }
+}
+
+// ==========================================
+// 7. UI ACTIONS & TFJS STANDBY LOOP
 // ==========================================
 
 function toggleListeningLoop() {
@@ -766,79 +947,88 @@ function toggleListeningLoop() {
 
 async function startListeningLoop() {
     if (isListeningLoopActive) return;
-    
-    // Acquire Web Audio stream with hardware echo cancellation first so Mobile OS allows continuous playback!
-    try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
-            });
-            console.log("[Web Audio] Stream acquired with echo cancellation enabled.");
-            
-            // Setup Web Audio VAD Analyser for continuous standby without OS pauses
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioCtx.createMediaStreamSource(mediaStream);
-            analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 512;
-            source.connect(analyser);
 
-            startVADMonitoring();
-        }
-    } catch (e) {
-        console.warn("[Web Audio] getUserMedia stream warning:", e);
+    if (!transferRecognizer || !customWakeWordModelLoaded) {
+        showDebugError("Please train or load your custom TFJS wake word model first!");
+        return;
     }
 
     isListeningLoopActive = true;
     isWakeWordActive = false;
     wasPlayingBeforeDucking = false;
     requestWakeLock();
-    
+
     assistantSection.classList.add("listening");
-    assistantPrompt.textContent = "Hands-Free Engine Active";
-    transcriptDisplay.textContent = 'Speak "Alexa" or your command hands-free...';
+    assistantPrompt.textContent = "TFJS Engine Active";
+    assistantPrompt.style.color = "var(--neon-green)";
+    transcriptDisplay.textContent = `Listening locally for "${CUSTOM_WAKE_WORD}" (Zero OS Pauses)...`;
+
+    try {
+        // Start local TFJS recognizer without native SpeechRecognition (0 OS pauses!)
+        transferRecognizer.listen(async (result) => {
+            const scores = result.scores;
+            const labels = transferRecognizer.wordLabels();
+            const wakeWordIndex = labels.indexOf(CUSTOM_WAKE_WORD);
+            const confidence = scores[wakeWordIndex];
+
+            if (confidence > 0.80 && !isWakeWordActive && Date.now() > ignoreAudioUntil) {
+                console.log(`[TFJS Match] Custom wake word "${CUSTOM_WAKE_WORD}" detected with confidence: ${(confidence * 100).toFixed(1)}%`);
+                await triggerCommandCaptureFromTFJS();
+            }
+        }, {
+            probabilityThreshold: 0.80,
+            invokeCallbackOnNoiseAndUnknown: false,
+            overlapFactor: 0.5
+        });
+    } catch (err) {
+        console.error("[TFJS Listen Error]", err);
+    }
 }
 
-function startVADMonitoring() {
-    if (vadInterval) clearInterval(vadInterval);
-    
-    const bufferLength = analyser ? analyser.frequencyBinCount : 0;
-    const dataArray = new Uint8Array(bufferLength);
-
-    vadInterval = setInterval(async () => {
-        if (!isListeningLoopActive || isWakeWordActive || Date.now() < ignoreAudioUntil) return;
-        
-        if (analyser) {
-            analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < bufferLength; i++) {
-                sum += dataArray[i];
-            }
-            const averageEnergy = sum / bufferLength;
-
-            // RMS Voice Energy Threshold
-            if (averageEnergy > 25) {
-                lastSpeechDetectedTime = Date.now();
-                console.log(`[VAD Engine] Voice activity detected! Energy: ${averageEnergy.toFixed(1)}`);
-                triggerCommandCaptureWindow();
-            }
-        }
-    }, 150);
-}
-
-async function triggerCommandCaptureWindow() {
+async function triggerCommandCaptureFromTFJS() {
     if (isWakeWordActive) return;
+    isWakeWordActive = true;
 
+    // Pause TFJS listening temporarily so it doesn't conflict
+    try {
+        if (transferRecognizer && transferRecognizer.isListening()) {
+            await transferRecognizer.stopListening();
+        }
+    } catch (e) {}
+
+    // Duck-pause Spotify
+    wasPlayingBeforeDucking = false;
+    console.log("[TFJS Voice Daemon] Ducking active playback...");
+    const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
+    if (pauseRes === true) {
+        wasPlayingBeforeDucking = true;
+    }
+
+    // Start native SpeechRecognition for short 4-second command capture
     if (recognition) {
         try {
             recognition.start();
         } catch (e) {
-            console.warn("[Speech] Recognition window check:", e);
+            console.warn("[Speech] Recognition start error:", e);
         }
     }
+
+    // Timeout protection
+    wakeWordTimeout = setTimeout(async () => {
+        if (isWakeWordActive) {
+            isWakeWordActive = false;
+            if (recognition) try { recognition.stop(); } catch(e){}
+            
+            if (wasPlayingBeforeDucking) {
+                wasPlayingBeforeDucking = false;
+                suppressAcousticFeedback(2500);
+                await fetchFromSpotify("/v1/me/player/play", "PUT");
+            }
+
+            // Resume TFJS listening
+            startListeningLoop();
+        }
+    }, 5000);
 }
 
 function stopListeningLoop() {
@@ -847,30 +1037,23 @@ function stopListeningLoop() {
         isWakeWordActive = false;
         wasPlayingBeforeDucking = false;
         if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
-        if (vadInterval) clearInterval(vadInterval);
-        
+
+        try {
+            if (transferRecognizer && transferRecognizer.isListening()) {
+                transferRecognizer.stopListening();
+            }
+        } catch (e) {}
+
         if (recognition) {
             try {
                 recognition.stop();
             } catch (e) {}
         }
-        
-        if (mediaStream) {
-            try {
-                mediaStream.getTracks().forEach(track => track.stop());
-            } catch (e) {}
-            mediaStream = null;
-        }
-
-        if (audioCtx) {
-            try { audioCtx.close(); } catch (e) {}
-            audioCtx = null;
-        }
 
         releaseWakeLock();
         assistantSection.classList.remove("listening");
         assistantPrompt.textContent = "Wake Word Off";
-        transcriptDisplay.textContent = "Tap to start voice recognition loop...";
+        transcriptDisplay.textContent = "Tap to start TFJS voice recognition loop...";
     }
 }
 
@@ -958,6 +1141,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     handleAuthRedirectCallback();
     initializeSpeechEngine();
+    initTensorFlowSpeechEngine();
     
     if (accessToken) {
         initializeDashboard();

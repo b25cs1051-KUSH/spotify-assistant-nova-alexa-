@@ -269,6 +269,59 @@ header h1 {
     font-weight: 600;
 }
 
+/* Trainer Card Section */
+.trainer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.trainer-header h3 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.trainer-desc {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+
+.sample-btn-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.sample-btn-group button {
+    flex: 1;
+}
+
+.trainer-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.trainer-actions button {
+    flex: 1;
+}
+
+.training-log {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--neon-green);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 8px;
+    border-radius: 8px;
+    margin-top: 8px;
+    text-align: center;
+    border: 1px solid rgba(30, 215, 96, 0.3);
+}
+
 .spotify-logo-icon {
     width: 48px;
     height: 48px;

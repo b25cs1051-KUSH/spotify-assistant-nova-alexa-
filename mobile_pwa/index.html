@@ -15,6 +15,10 @@
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
+    
+    <!-- TensorFlow.js & Speech Commands Model CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@latest/dist/speech-commands.min.js"></script>
 </head>
 <body>
     <div class="glass-bg-blur"></div>
@@ -102,6 +106,38 @@
             <div class="assistant-feedback">
                 <h2 id="assistant-prompt">Wake Word Off</h2>
                 <p id="transcript-display" class="transcript-placeholder">Tap to start voice recognition loop...</p>
+            </div>
+        </section>
+
+        <!-- TFJS Wake Word Transfer Learning Card -->
+        <section id="trainer-section" class="card fade-in">
+            <div class="trainer-header">
+                <h3>🧠 TFJS Custom Wake Word Engine</h3>
+                <span id="tfjs-status-badge" class="badge">Checking Model...</span>
+            </div>
+
+            <!-- Trainer Controls (Visible when training is needed or retrain requested) -->
+            <div id="trainer-controls" class="trainer-body">
+                <p class="trainer-desc">Train a custom model in 2 minutes so your phone recognizes <strong>"Nova"</strong> 100% locally in JS with zero OS audio pauses.</p>
+
+                <div class="sample-btn-group">
+                    <button id="record-wake-btn" class="btn btn-secondary btn-sm" type="button">
+                        🎙️ Sample "Nova" (<span id="wake-count">0</span>/10)
+                    </button>
+                    <button id="record-noise-btn" class="btn btn-secondary btn-sm" type="button">
+                        🔊 Sample Noise (<span id="noise-count">0</span>/10)
+                    </button>
+                </div>
+
+                <div class="trainer-actions">
+                    <button id="train-save-btn" class="btn btn-primary btn-sm disabled" disabled type="button">
+                        ⚡ Train & Save to IndexedDB
+                    </button>
+                    <button id="retrain-btn" class="btn btn-secondary btn-sm hidden" type="button">
+                        🔄 Retrain Model
+                    </button>
+                </div>
+                <div id="training-progress" class="training-log hidden">Epoch: 0/25 | Loss: --</div>
             </div>
         </section>
 
