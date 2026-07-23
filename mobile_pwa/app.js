@@ -58,9 +58,14 @@ let recognition = null;
 let wakeLock = null;
 let isListeningLoopActive = false;
 let activePlaybackDevice = null;
-let wasPlayingBeforeDucking = false;
 let isWakeWordActive = false;
 let wakeWordTimeout = null;
+let ignoreAudioUntil = 0;
+
+function suppressAcousticFeedback(durationMs = 2500) {
+    ignoreAudioUntil = Date.now() + durationMs;
+    console.log(`[Speech Engine] Suppressing acoustic feedback for ${durationMs}ms`);
+}
 
 // ==========================================
 // 1. OAUTH 2.0 PKCE CRYPTOGRAPHY HELPERS
@@ -425,6 +430,12 @@ function initializeSpeechEngine() {
     };
 
     recognition.onresult = async (event) => {
+        // Suppress microphone input during speaker startup buffer to prevent acoustic feedback loops
+        if (Date.now() < ignoreAudioUntil) {
+            console.log("[Speech Engine] Ignoring transcript during speaker audio startup buffer.");
+            return;
+        }
+
         const lastResultIndex = event.results.length - 1;
         const text = event.results[lastResultIndex][0].transcript.trim();
         const textLower = text.toLowerCase();
@@ -441,12 +452,13 @@ function initializeSpeechEngine() {
             transcriptDisplay.textContent = `Processing: "${text}"`;
             await parseAndExecuteVoiceCommand(textLower);
             
-            // Restore playback if needed
+            // Restore playback if command wasn't pause or new play/navigation
             const isPauseCommand = /pause|stop|boss|freeze/.test(textLower);
             const isPlayOrNavigationCommand = /play|start|resume|next|skip|prev|back/.test(textLower);
             if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
                 setTimeout(async () => {
                     console.log("[Voice Daemon] Restoring playback...");
+                    suppressAcousticFeedback(2500);
                     await fetchFromSpotify("/v1/me/player/play", "PUT");
                     checkActiveDevice();
                 }, 1000);
@@ -459,12 +471,11 @@ function initializeSpeechEngine() {
             return;
         }
 
-        // Case B: Listening for wake word trigger
-        // Use exact word boundary matching (\b) so partial words or ambient noise ("noah", "synonym") never false-trigger
+        // Case B: Listening for wake word trigger ("Alex", "Alexa", "Nova", "Alexis")
         const wordsArray = textLower.match(/\b\w+\b/g) || [];
         const wordsSet = new Set(wordsArray);
         
-        const wakeWordList = ["alexa", "nova", "innova", "alexis"];
+        const wakeWordList = ["alexa", "alex", "nova", "innova", "alexis"];
         let matchedWake = null;
 
         for (const w of wakeWordList) {
@@ -474,7 +485,7 @@ function initializeSpeechEngine() {
             }
         }
 
-        // If no wake word was spoken in this phrase, ignore it completely! Music continues playing.
+        // If no wake word was spoken in this phrase, ignore it completely! Music continues playing smoothly.
         if (!matchedWake) {
             return;
         }
@@ -487,14 +498,14 @@ function initializeSpeechEngine() {
 
         // Duck volume/pause active music ONLY when a legitimate wake word is matched!
         wasPlayingBeforeDucking = false;
-        console.log("[Voice Daemon] Ducking active playback...");
+        console.log("[Voice Daemon] Ducking active playback for listening environment...");
         const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
         if (pauseRes === true) {
             wasPlayingBeforeDucking = true;
         }
 
         if (trailingCommand && trailingCommand.length > 1) {
-            // One-shot execution: User said "Alexa play Starboy" or "Alexa next"
+            // One-shot execution: User said "Alex play Starboy" or "Alexa next"
             transcriptDisplay.textContent = `Processing: "${trailingCommand}"`;
             await parseAndExecuteVoiceCommand(trailingCommand);
             
@@ -503,12 +514,13 @@ function initializeSpeechEngine() {
             if (wasPlayingBeforeDucking && !isPauseCommand && !isPlayOrNavigationCommand) {
                 setTimeout(async () => {
                     console.log("[Voice Daemon] Restoring playback...");
+                    suppressAcousticFeedback(2500);
                     await fetchFromSpotify("/v1/me/player/play", "PUT");
                     checkActiveDevice();
                 }, 1000);
             }
         } else {
-            // Two-step execution: User said "Alexa". Duck music, change UI state, and wait for command.
+            // Two-step execution: User said "Alex" or "Alexa". Duck music, change UI state, and wait for command.
             isWakeWordActive = true;
             assistantPrompt.textContent = "Listening to Command...";
             assistantPrompt.style.color = "var(--neon-green)";
@@ -519,9 +531,10 @@ function initializeSpeechEngine() {
                 isWakeWordActive = false;
                 assistantPrompt.textContent = "Listening for Wake Word...";
                 assistantPrompt.style.color = "var(--text-primary)";
-                transcriptDisplay.textContent = "Wake word timed out. Say 'Alexa'...";
+                transcriptDisplay.textContent = "Wake word timed out. Say 'Alex' or 'Alexa'...";
                 
                 if (wasPlayingBeforeDucking) {
+                    suppressAcousticFeedback(2500);
                     fetchFromSpotify("/v1/me/player/play", "PUT");
                 }
             }, 6000);
@@ -552,6 +565,7 @@ async function parseAndExecuteVoiceCommand(command) {
     
     // 1. Playback Resuming / General Resume
     if (words.includes("resume") || words.includes("start") || (words.includes("play") && words.length === 1)) {
+        suppressAcousticFeedback(2500);
         await fetchFromSpotify("/v1/me/player/play", "PUT");
         checkActiveDevice();
         return;
@@ -567,6 +581,7 @@ async function parseAndExecuteVoiceCommand(command) {
     // 3. Skip Next (Direct execution, no pre-resume lag)
     if (words.includes("next") || words.includes("skip")) {
         console.log("[Playback] Skipping next...");
+        suppressAcousticFeedback(2500);
         await fetchFromSpotify("/v1/me/player/next", "POST");
         setTimeout(checkActiveDevice, 300);
         return;
@@ -575,6 +590,7 @@ async function parseAndExecuteVoiceCommand(command) {
     // 4. Skip Previous (Direct execution, no pre-resume lag)
     if (words.includes("previous") || words.includes("prev") || words.includes("back")) {
         console.log("[Playback] Returning previous...");
+        suppressAcousticFeedback(2500);
         await fetchFromSpotify("/v1/me/player/previous", "POST");
         setTimeout(checkActiveDevice, 300);
         return;
@@ -608,10 +624,12 @@ async function parseAndExecuteVoiceCommand(command) {
         const queryIndex = words.indexOf("play") + 1;
         const query = words.slice(queryIndex).join(" ").trim();
         if (query) {
+            suppressAcousticFeedback(2500);
             await playSongWithAutoplayQueue(query);
         }
     } else {
         // Fallback: entire transcript is treated as song search
+        suppressAcousticFeedback(2500);
         await playSongWithAutoplayQueue(command);
     }
 }
