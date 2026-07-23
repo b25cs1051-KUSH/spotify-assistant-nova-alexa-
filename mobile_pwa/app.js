@@ -62,6 +62,10 @@ let isWakeWordActive = false;
 let wakeWordTimeout = null;
 let ignoreAudioUntil = 0;
 let mediaStream = null;
+let audioCtx = null;
+let analyser = null;
+let vadInterval = null;
+let lastSpeechDetectedTime = 0;
 
 function suppressAcousticFeedback(durationMs = 2500) {
     ignoreAudioUntil = Date.now() + durationMs;
@@ -419,15 +423,15 @@ function initializeSpeechEngine() {
     }
 
     recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    recognition.continuous = false; // Single utterance window on-demand to prevent Mobile OS audio locks!
     recognition.interimResults = false;
     recognition.lang = "en-IN"; // Target Indian English accent
 
     recognition.onstart = () => {
-        isListeningLoopActive = true;
         assistantSection.classList.add("listening");
-        assistantPrompt.textContent = "Listening for Wake Word...";
-        transcriptDisplay.textContent = 'Say "Alexa" or "Nova" followed by your command...';
+        assistantPrompt.textContent = "Listening to Command...";
+        assistantPrompt.style.color = "var(--neon-green)";
+        transcriptDisplay.textContent = 'Speak your command now...';
     };
 
     recognition.onresult = async (event) => {
@@ -772,23 +776,93 @@ async function startListeningLoop() {
                 }
             });
             console.log("[Web Audio] Stream acquired with echo cancellation enabled.");
+            
+            // Setup Web Audio VAD Analyser for continuous standby without OS pauses
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioCtx.createMediaStreamSource(mediaStream);
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 512;
+            source.connect(analyser);
+
+            startVADMonitoring();
         }
     } catch (e) {
         console.warn("[Web Audio] getUserMedia stream warning:", e);
     }
 
+    isListeningLoopActive = true;
+    isWakeWordActive = false;
+    wasPlayingBeforeDucking = false;
+    requestWakeLock();
+    
+    assistantSection.classList.add("listening");
+    assistantPrompt.textContent = "Hands-Free Engine Active";
+    transcriptDisplay.textContent = 'Speak "Alexa" or your command hands-free...';
+}
+
+function startVADMonitoring() {
+    if (vadInterval) clearInterval(vadInterval);
+    
+    const bufferLength = analyser ? analyser.frequencyBinCount : 0;
+    const dataArray = new Uint8Array(bufferLength);
+
+    vadInterval = setInterval(async () => {
+        if (!isListeningLoopActive || isWakeWordActive || Date.now() < ignoreAudioUntil) return;
+        
+        if (analyser) {
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            const averageEnergy = sum / bufferLength;
+
+            // RMS Voice Energy Threshold
+            if (averageEnergy > 25) {
+                lastSpeechDetectedTime = Date.now();
+                console.log(`[VAD Engine] Voice activity detected! Energy: ${averageEnergy.toFixed(1)}`);
+                triggerCommandCaptureWindow();
+            }
+        }
+    }, 150);
+}
+
+async function triggerCommandCaptureWindow() {
+    if (isWakeWordActive) return;
+    isWakeWordActive = true;
+
+    // Duck volume/pause active music ONLY when voice is detected!
+    wasPlayingBeforeDucking = false;
+    console.log("[Voice Daemon] Ducking active playback for voice command window...");
+    const pauseRes = await fetchFromSpotify("/v1/me/player/pause", "PUT");
+    if (pauseRes === true) {
+        wasPlayingBeforeDucking = true;
+    }
+
     if (recognition) {
-        isListeningLoopActive = true;
-        isWakeWordActive = false;
-        wasPlayingBeforeDucking = false;
-        if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
         try {
             recognition.start();
-        } catch (err) {
-            console.warn("[Speech] Recognition start warning:", err);
+        } catch (e) {
+            console.warn("[Speech] Recognition already active:", e);
         }
-        requestWakeLock();
     }
+
+    // Dynamic 500ms / 6s timeout protection
+    wakeWordTimeout = setTimeout(() => {
+        if (isWakeWordActive) {
+            isWakeWordActive = false;
+            if (recognition) try { recognition.stop(); } catch(e){}
+            assistantPrompt.textContent = "Hands-Free Engine Active";
+            assistantPrompt.style.color = "var(--text-primary)";
+            transcriptDisplay.textContent = 'Standby listening... Say "Alexa" or speak...';
+            
+            if (wasPlayingBeforeDucking) {
+                wasPlayingBeforeDucking = false;
+                suppressAcousticFeedback(2500);
+                fetchFromSpotify("/v1/me/player/play", "PUT");
+            }
+        }
+    }, 5000);
 }
 
 function stopListeningLoop() {
@@ -797,6 +871,7 @@ function stopListeningLoop() {
         isWakeWordActive = false;
         wasPlayingBeforeDucking = false;
         if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
+        if (vadInterval) clearInterval(vadInterval);
         
         if (recognition) {
             try {
@@ -809,6 +884,11 @@ function stopListeningLoop() {
                 mediaStream.getTracks().forEach(track => track.stop());
             } catch (e) {}
             mediaStream = null;
+        }
+
+        if (audioCtx) {
+            try { audioCtx.close(); } catch (e) {}
+            audioCtx = null;
         }
 
         releaseWakeLock();
